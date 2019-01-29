@@ -77,6 +77,22 @@ parser.add_argument('--gpu-id', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 
 args = parser.parse_args()
+
+# ------local config------ #
+args.arch = 'resnet'
+args.depth = 110
+args.wd = 0
+
+args.train_batch = 128
+args.schedule = [81, 122]
+args.dataset = 'cifar10'
+args.epochs = 164
+args.checkpoint = 'checkpoints/cifar10/resnet-110'
+
+args.manualSeed = 123
+# ------local config------ #
+
+
 state = {k: v for k, v in args._get_kwargs()}
 
 # Validate dataset
