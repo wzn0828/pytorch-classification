@@ -7,6 +7,8 @@ test.eps
 dev
 monitor.py
 exp
+.idea/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
