@@ -8,6 +8,7 @@ https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 (c) YANG, Wei
 '''
 import torch.nn as nn
+import torch.nn.init as init
 import math
 
 
@@ -112,9 +113,8 @@ class ResNet(nn.Module):
         self.fc = nn.Linear(64 * block.expansion, num_classes)
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out')
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
