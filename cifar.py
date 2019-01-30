@@ -22,6 +22,12 @@ import models.cifar as models
 
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 
+try:
+    import tensorboardX as tb
+except ImportError:
+    print("tensorboardX is not installed")
+    tb = None
+
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -119,8 +125,6 @@ def main():
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
 
-
-
     # Data
     print('==> Preparing dataset %s' % args.dataset)
     transform_train = transforms.Compose([
@@ -177,6 +181,7 @@ def main():
         model = models.__dict__[args.arch](
                     num_classes=num_classes,
                     depth=args.depth,
+                    opt=args
                 )
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
@@ -216,10 +221,11 @@ def main():
     for epoch in range(start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
+        add_summary_value(tb_summary_writer, 'learning_rate', state['lr'], epoch + 1)
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
-        train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch, use_cuda)
-        test_loss, test_acc = test(testloader, model, criterion, epoch, use_cuda)
+        train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
+        test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
 
         # append logger file
         logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
@@ -281,6 +287,16 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         batch_time.update(time.time() - end)
         end = time.time()
 
+        if batch_idx % args.print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                      epoch, batch_idx, len(trainloader), batch_time=batch_time,
+                      data_time=data_time, loss=losses, top1=top1, top5=top5))
+
         # plot progress
         bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
                     batch=batch_idx + 1,
@@ -295,6 +311,11 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                     )
         bar.next()
     bar.finish()
+
+    add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
+
     return (losses.avg, top1.avg)
 
 def test(testloader, model, criterion, epoch, use_cuda):
@@ -317,7 +338,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
 
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
+        # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
         # compute output
         outputs = model(inputs)
@@ -345,8 +366,26 @@ def test(testloader, model, criterion, epoch, use_cuda):
                     top1=top1.avg,
                     top5=top5.avg,
                     )
+        if batch_idx % args.print_freq == 0:
+            print('Test: [{0}/{1}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                batch_idx, len(testloader), batch_time=batch_time, loss=losses,
+                top1=top1, top5=top5))
         bar.next()
     bar.finish()
+
+    print(' * Prec@1 {top1.avg:.3f}\t'
+          ' * Prec@5 {top5.avg:.3f}'
+          .format(top1=top1, top5=top5))
+
+    if epoch is not None:
+        add_summary_value(tb_summary_writer, 'Loss/test', losses.avg, epoch)
+        add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
+        add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
+
     return (losses.avg, top1.avg)
 
 def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth.tar'):
@@ -361,6 +400,10 @@ def adjust_learning_rate(optimizer, epoch):
         state['lr'] *= args.gamma
         for param_group in optimizer.param_groups:
             param_group['lr'] = state['lr']
+
+def add_summary_value(writer, key, value, iteration):
+    if writer:
+        writer.add_scalar(key, value, iteration)
 
 if __name__ == '__main__':
     main()
