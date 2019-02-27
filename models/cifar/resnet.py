@@ -10,16 +10,23 @@ https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-import math
+from models.custom import *
 
+__all__ = ['resnet', 'set_gl_variable']
 
-__all__ = ['resnet']
+Linear_Class = nn.Linear
+Con2d_Class = nn.Conv2d
+
+def set_gl_variable(linear, conv):
+    global Linear_Class
+    Linear_Class = linear
+    global Con2d_Class
+    Con2d_Class = conv
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+    return Con2d_Class(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
-
 
 class HW_connection(nn.Module):
     def __init__(self, planes, trans_gate_bias=0, carry_gate_bias=0, normal=False, skip_sum_1=False):
@@ -28,12 +35,12 @@ class HW_connection(nn.Module):
         self.skip_sum_1 = skip_sum_1
         self.nonlinear = nn.Sigmoid()
 
-        self.transform_gate = nn.Sequential(nn.Conv2d(planes, planes, kernel_size=1, stride=1, padding=0),
+        self.transform_gate = nn.Sequential(Con2d_Class(planes, planes, kernel_size=1, stride=1, padding=0),
                                             self.nonlinear)
         self.transform_gate[0].bias.data.fill_(trans_gate_bias)
         if not self.skip_sum_1:
             self.carry_gate = nn.Sequential(
-                nn.Conv2d(planes, planes, kernel_size=1, stride=1, padding=0),
+                Con2d_Class(planes, planes, kernel_size=1, stride=1, padding=0),
                 self.nonlinear)
             self.carry_gate[0].bias.data.fill_(carry_gate_bias)
 
@@ -55,7 +62,6 @@ class HW_connection(nn.Module):
         carry_gate = carry_gate.mean()
 
         return output, trans_gate, carry_gate
-
 
 
 class BasicBlock(nn.Module):
@@ -107,12 +113,12 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, opt, skip, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.conv1 = Con2d_Class(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+        self.conv2 = Con2d_Class(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.conv3 = Con2d_Class(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -174,7 +180,7 @@ class ResNet(nn.Module):
         self.skip_2_num = opt.skip_2_num
         num_skip_2 = self._get_num_skip_2(self.skip_2_num, [n, n, n])
 
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1,
+        self.conv1 = Con2d_Class(3, 16, kernel_size=3, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
@@ -182,10 +188,10 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 32, n, num_skip_2[1], stride=2)
         self.layer3 = self._make_layer(block, 64, n, num_skip_2[2], stride=2)
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = nn.Linear(64 * block.expansion, num_classes)
+        self.fc = Linear_Class(64 * block.expansion, num_classes)
 
         for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+            if isinstance(m, Linear_Class) or isinstance(m, Con2d_Class):
                 init.kaiming_normal_(m.weight, mode='fan_out')
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -195,7 +201,7 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
+                Con2d_Class(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(planes * block.expansion),
             )
