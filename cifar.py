@@ -19,6 +19,7 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import models.cifar as models
+from models.custom import *
 
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 
