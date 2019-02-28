@@ -6,6 +6,16 @@ from torch.nn import init
 from torch.nn.modules.conv import Conv2d
 from torch.nn.modules.linear import Linear
 
+Linear_Class = nn.Linear
+Con2d_Class = nn.Conv2d
+
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d):
+    global Linear_Class
+    Linear_Class = linear
+    global Con2d_Class
+    Con2d_Class = conv
+
+
 class LinearProDis(Linear):
 
     def __init__(self, in_features, out_features, bias=True):

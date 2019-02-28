@@ -9,22 +9,13 @@ https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 '''
 import torch.nn as nn
 import torch.nn.init as init
-from models.custom import *
+import models.custom as custom
 
-__all__ = ['resnet', 'set_gl_variable']
-
-Linear_Class = nn.Linear
-Con2d_Class = nn.Conv2d
-
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d):
-    global Linear_Class
-    Linear_Class = linear
-    global Con2d_Class
-    Con2d_Class = conv
+__all__ = ['resnet']
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
-    return Con2d_Class(in_planes, out_planes, kernel_size=3, stride=stride,
+    return custom.Con2d_Class(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
 class BasicBlock(nn.Module):
@@ -64,12 +55,12 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = Con2d_Class(inplanes, planes, kernel_size=1, bias=False)
+        self.conv1 = custom.Con2d_Class(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = Con2d_Class(planes, planes, kernel_size=3, stride=stride,
+        self.conv2 = custom.Con2d_Class(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = Con2d_Class(planes, planes * 4, kernel_size=1, bias=False)
+        self.conv3 = custom.Con2d_Class(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -114,17 +105,17 @@ class ResNet(nn.Module):
             raise ValueError('block_name shoule be Basicblock or Bottleneck')
 
         self.inplanes = 16
-        self.conv1 = Con2d_Class(3, 16, kernel_size=3, padding=1, bias=False)
+        self.conv1 = custom.Con2d_Class(3, 16, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.layer1 = self._make_layer(block, 16, n)
         self.layer2 = self._make_layer(block, 32, n, stride=2)
         self.layer3 = self._make_layer(block, 64, n, stride=2)
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = Linear_Class(64 * block.expansion, num_classes)
+        self.fc = custom.Linear_Class(64 * block.expansion, num_classes)
 
         for m in self.modules():
-            if isinstance(m, Linear_Class) or isinstance(m, Con2d_Class):
+            if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
                 init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
@@ -134,7 +125,7 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                Con2d_Class(self.inplanes, planes * block.expansion,
+                custom.Con2d_Class(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(planes * block.expansion),
             )
