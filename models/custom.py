@@ -112,30 +112,30 @@ class Conv2dProDis(Conv2d):
 
         return out
 
-# test code
-torch.manual_seed(123)
-ori_linear = nn.Linear(512, 1024)
-torch.manual_seed(123)
-cus_linear = LinearProDis(512, 1024)
-input_linear = torch.randn(20, 512)
-ori_linear_out = ori_linear(input_linear)
-cus_linear_out = cus_linear(input_linear)
-linear_diff = ori_linear_out - cus_linear_out
-print(linear_diff.min(), linear_diff.max())
-print(ori_linear_out.min(), ori_linear_out.max())
-print(cus_linear_out.min(), cus_linear_out.max())
-
-torch.manual_seed(123)
-ori_conv = nn.Conv2d(16, 33, 3, 2)
-torch.manual_seed(123)
-cus_conv = Conv2dProDis(16, 33, 3, 2)
-input_conv = torch.randn(20, 16, 50, 100)
-ori_conv_out = ori_conv(input_conv)
-cus_conv_out = cus_conv(input_conv)
-conv_diff = ori_conv_out - cus_conv_out
-print(conv_diff.min(), conv_diff.max())
-print(ori_conv_out.min(), ori_conv_out.max())
-print(cus_conv_out.min(), cus_conv_out.max())
+# # test code
+# torch.manual_seed(123)
+# ori_linear = nn.Linear(512, 1024)
+# torch.manual_seed(123)
+# cus_linear = LinearProDis(512, 1024)
+# input_linear = torch.randn(20, 512)
+# ori_linear_out = ori_linear(input_linear)
+# cus_linear_out = cus_linear(input_linear)
+# linear_diff = ori_linear_out - cus_linear_out
+# print(linear_diff.min(), linear_diff.max())
+# print(ori_linear_out.min(), ori_linear_out.max())
+# print(cus_linear_out.min(), cus_linear_out.max())
+#
+# torch.manual_seed(123)
+# ori_conv = nn.Conv2d(16, 33, 3, 2)
+# torch.manual_seed(123)
+# cus_conv = Conv2dProDis(16, 33, 3, 2)
+# input_conv = torch.randn(20, 16, 50, 100)
+# ori_conv_out = ori_conv(input_conv)
+# cus_conv_out = cus_conv(input_conv)
+# conv_diff = ori_conv_out - cus_conv_out
+# print(conv_diff.min(), conv_diff.max())
+# print(ori_conv_out.min(), ori_conv_out.max())
+# print(cus_conv_out.min(), cus_conv_out.max())
 
 
 
