@@ -7,7 +7,6 @@ and
 https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 (c) YANG, Wei
 '''
-import torch
 import torch.nn as nn
 import torch.nn.init as init
 from models.custom import *
@@ -28,46 +27,10 @@ def conv3x3(in_planes, out_planes, stride=1):
     return Con2d_Class(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
-class HW_connection(nn.Module):
-    def __init__(self, planes, trans_gate_bias=0, carry_gate_bias=0, normal=False, skip_sum_1=False):
-        super(HW_connection, self).__init__()
-        self.normal = normal
-        self.skip_sum_1 = skip_sum_1
-        self.nonlinear = nn.Sigmoid()
-
-        self.transform_gate = nn.Sequential(Con2d_Class(planes, planes, kernel_size=1, stride=1, padding=0),
-                                            self.nonlinear)
-        self.transform_gate[0].bias.data.fill_(trans_gate_bias)
-        if not self.skip_sum_1:
-            self.carry_gate = nn.Sequential(
-                Con2d_Class(planes, planes, kernel_size=1, stride=1, padding=0),
-                self.nonlinear)
-            self.carry_gate[0].bias.data.fill_(carry_gate_bias)
-
-    def forward(self, input_1, input_2):
-        # both inputs' size maybe batch*planes*H*W
-        trans_gate = self.transform_gate(input_1)  # batch*planes*H*W
-        if self.skip_sum_1:
-            carry_gate = 1 - trans_gate
-        else:
-            carry_gate = self.carry_gate(input_1)  # batch*planes*H*W
-
-        if self.normal == True:
-            l2 = torch.stack([trans_gate, carry_gate], dim=4).norm(p=2, dim=4, keepdim=False)
-            trans_gate = trans_gate / l2
-            carry_gate = carry_gate / l2
-        output = input_2 * trans_gate + input_1 * carry_gate  # batch*opt.rnn_size
-
-        trans_gate = trans_gate.mean()
-        carry_gate = carry_gate.mean()
-
-        return output, trans_gate, carry_gate
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, opt, skip, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -76,14 +39,6 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
-
-        self.skip = skip
-        if self.skip == 'HW':
-            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
-                                               carry_gate_bias=opt.skip_HW_carry_bias, normal=False, skip_sum_1=opt.skip_sum_1)
-        elif self.skip == 'HW-normal':
-            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
-                                               carry_gate_bias=opt.skip_HW_carry_bias, normal=True, skip_sum_1=opt.skip_sum_1)
 
     def forward(self, x):
         residual = x
@@ -98,11 +53,7 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        if self.skip == 'RES':
-            out += residual
-        elif self.skip is not None and self.skip in ['HW', 'HW-normal']:
-            out, trans_gate, carry_gate = self.HW_connection(residual, out)
-
+        out += residual
         out = self.relu(out)
 
         return out
@@ -111,7 +62,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, opt, skip, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = Con2d_Class(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -123,14 +74,6 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-
-        self.skip = skip
-        if self.skip == 'HW':
-            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
-                                               carry_gate_bias=opt.skip_HW_carry_bias, normal=False, skip_sum_1=opt.skip_sum_1)
-        elif self.skip == 'HW-normal':
-            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
-                                               carry_gate_bias=opt.skip_HW_carry_bias, normal=True, skip_sum_1=opt.skip_sum_1)
 
     def forward(self, x):
         residual = x
@@ -149,18 +92,14 @@ class Bottleneck(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        if self.skip == 'RES':
-            out += residual
-        elif self.skip is not None and self.skip in ['HW', 'HW-normal']:
-            out, trans_gate, carry_gate = self.HW_connection(residual, out)
-
+        out += residual
         out = self.relu(out)
 
         return out
 
 
 class ResNet(nn.Module):
-    def __init__(self, depth, opt, num_classes=1000, block_name='BasicBlock'):
+    def __init__(self, depth, num_classes=1000, block_name='BasicBlock'):
         super(ResNet, self).__init__()
         # Model type specifies number of layers for CIFAR-10 model
         if block_name.lower() == 'basicblock':
@@ -174,19 +113,13 @@ class ResNet(nn.Module):
         else:
             raise ValueError('block_name shoule be Basicblock or Bottleneck')
 
-        self.opt = opt
         self.inplanes = 16
-
-        self.skip_2_num = opt.skip_2_num
-        num_skip_2 = self._get_num_skip_2(self.skip_2_num, [n, n, n])
-
-        self.conv1 = Con2d_Class(3, 16, kernel_size=3, padding=1,
-                               bias=False)
+        self.conv1 = Con2d_Class(3, 16, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 16, n, num_skip_2[0], stride=1)
-        self.layer2 = self._make_layer(block, 32, n, num_skip_2[1], stride=2)
-        self.layer3 = self._make_layer(block, 64, n, num_skip_2[2], stride=2)
+        self.layer1 = self._make_layer(block, 16, n)
+        self.layer2 = self._make_layer(block, 32, n, stride=2)
+        self.layer3 = self._make_layer(block, 64, n, stride=2)
         self.avgpool = nn.AvgPool2d(8)
         self.fc = Linear_Class(64 * block.expansion, num_classes)
 
@@ -197,7 +130,7 @@ class ResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-    def _make_layer(self, block, planes, blocks, num_skip_2, stride=1):
+    def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
@@ -207,32 +140,12 @@ class ResNet(nn.Module):
             )
 
         layers = []
-        if 0 < blocks - num_skip_2:
-            layers.append(block(self.inplanes, planes, self.opt, skip=self.opt.skip_connection_1, stride=stride,
-                                downsample=downsample))
-        else:
-            layers.append(block(self.inplanes, planes, self.opt, skip=self.opt.skip_connection_2, stride=stride,
-                                downsample=downsample))
-
+        layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            if i < blocks - num_skip_2:
-                layers.append(block(self.inplanes, planes, self.opt, skip=self.opt.skip_connection_1))
-            else:
-                layers.append(block(self.inplanes, planes, self.opt, skip=self.opt.skip_connection_2))
+            layers.append(block(self.inplanes, planes))
 
         return nn.Sequential(*layers)
-
-    def _get_num_skip_2(self, skip_2_num, num_blocks):
-
-        if skip_2_num <= num_blocks[2]:
-            return [0, 0, skip_2_num]
-        elif skip_2_num <= num_blocks[1] + num_blocks[2]:
-            return [0, skip_2_num - num_blocks[2], num_blocks[2]]
-        elif skip_2_num <= num_blocks[0] + num_blocks[1] + num_blocks[2]:
-            return [skip_2_num - num_blocks[2] - num_blocks[1], num_blocks[1], num_blocks[2]]
-        else:
-            return num_blocks
 
     def forward(self, x):
         x = self.conv1(x)
