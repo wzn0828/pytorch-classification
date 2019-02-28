@@ -192,7 +192,7 @@ class ResNet(nn.Module):
 
         for m in self.modules():
             if isinstance(m, Linear_Class) or isinstance(m, Con2d_Class):
-                init.kaiming_normal_(m.weight, mode='fan_out')
+                init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
