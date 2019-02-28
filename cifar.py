@@ -196,6 +196,9 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                        milestones=args.schedule, last_epoch=args.start_epoch - 1)
+
     # Resume
     title = 'cifar-10-' + args.arch
     if args.resume:
@@ -222,13 +225,15 @@ def main():
 
     # Train and val
     for epoch in range(start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch)
-
+        state['lr'] = optimizer.param_groups[0]['lr']
         add_summary_value(tb_summary_writer, 'learning_rate', state['lr'], epoch + 1)
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
+        lr_scheduler.step()
+
         test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
+
 
         # append logger file
         logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
