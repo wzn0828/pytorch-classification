@@ -79,10 +79,10 @@ class BasicBlock(nn.Module):
 
         self.skip = skip
         if self.skip == 'HW':
-            self.HW_connection = HW_connection(planes=planes*self.expansion, trans_gate_bias=opt.skip_HW_trans_bias,
+            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
                                                carry_gate_bias=opt.skip_HW_carry_bias, normal=False, skip_sum_1=opt.skip_sum_1)
         elif self.skip == 'HW-normal':
-            self.HW_connection = HW_connection(planes=planes*self.expansion, trans_gate_bias=opt.skip_HW_trans_bias,
+            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
                                                carry_gate_bias=opt.skip_HW_carry_bias, normal=True, skip_sum_1=opt.skip_sum_1)
 
     def forward(self, x):
@@ -126,10 +126,10 @@ class Bottleneck(nn.Module):
 
         self.skip = skip
         if self.skip == 'HW':
-            self.HW_connection = HW_connection(planes=planes*self.expansion, trans_gate_bias=opt.skip_HW_trans_bias,
+            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
                                                carry_gate_bias=opt.skip_HW_carry_bias, normal=False, skip_sum_1=opt.skip_sum_1)
         elif self.skip == 'HW-normal':
-            self.HW_connection = HW_connection(planes=planes*self.expansion, trans_gate_bias=opt.skip_HW_trans_bias,
+            self.HW_connection = HW_connection(planes=planes, trans_gate_bias=opt.skip_HW_trans_bias,
                                                carry_gate_bias=opt.skip_HW_carry_bias, normal=True, skip_sum_1=opt.skip_sum_1)
 
     def forward(self, x):
