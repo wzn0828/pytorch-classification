@@ -17,7 +17,7 @@ __all__ = ['resnet', 'set_gl_variable']
 Linear_Class = nn.Linear
 Con2d_Class = nn.Conv2d
 
-def set_gl_variable(linear, conv):
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d):
     global Linear_Class
     Linear_Class = linear
     global Con2d_Class
