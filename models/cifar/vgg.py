@@ -4,6 +4,8 @@
 import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import math
+import torch.nn.init as init
+import models.custom as custom
 
 
 __all__ = [
@@ -25,7 +27,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000):
         super(VGG, self).__init__()
         self.features = features
-        self.classifier = nn.Linear(512, num_classes)
+        self.classifier = custom.Linear_Class(512, num_classes)
         self._initialize_weights()
 
     def forward(self, x):
@@ -36,17 +38,12 @@ class VGG(nn.Module):
 
     def _initialize_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+            if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
+                init.kaiming_normal_(m.weight)
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
 
@@ -57,7 +54,7 @@ def make_layers(cfg, batch_norm=False):
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            conv2d = custom.Con2d_Class(in_channels, v, kernel_size=3, padding=1)
             if batch_norm:
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
             else:
