@@ -74,7 +74,8 @@ class WideResNet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
             elif isinstance(m, custom.Linear_Class):
-                m.bias.data.zero_()
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
     def forward(self, x):
         out = self.conv1(x)
