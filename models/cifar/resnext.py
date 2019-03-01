@@ -80,14 +80,15 @@ class CifarResNeXt(nn.Module):
         self.classifier = nn.Linear(1024, num_classes)
         init.kaiming_normal(self.classifier.weight)
 
-        for key in self.state_dict():
-            if key.split('.')[-1] == 'weight':
-                if 'conv' in key:
-                    init.kaiming_normal(self.state_dict()[key], mode='fan_out')
-                if 'bn' in key:
-                    self.state_dict()[key][...] = 1
-            elif key.split('.')[-1] == 'bias':
-                self.state_dict()[key][...] = 0
+        for m in self.modules():
+            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
     def block(self, name, in_channels, out_channels, pool_stride=2):
         """ Stack n bottleneck modules where n is inferred from the depth of the network.
