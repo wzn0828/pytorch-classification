@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import models.custom as custom
 
 __all__ = ['wrn']
 
@@ -10,15 +11,15 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        self.conv1 = custom.Con2d_Class(in_planes, out_planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_planes)
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1,
+        self.conv2 = custom.Con2d_Class(out_planes, out_planes, kernel_size=3, stride=1,
                                padding=1, bias=False)
         self.droprate = dropRate
         self.equalInOut = (in_planes == out_planes)
-        self.convShortcut = (not self.equalInOut) and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
+        self.convShortcut = (not self.equalInOut) and custom.Con2d_Class(in_planes, out_planes, kernel_size=1, stride=stride,
                                padding=0, bias=False) or None
     def forward(self, x):
         if not self.equalInOut:
@@ -51,7 +52,7 @@ class WideResNet(nn.Module):
         n = (depth - 4) // 6
         block = BasicBlock
         # 1st conv before any network block
-        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1,
+        self.conv1 = custom.Con2d_Class(3, nChannels[0], kernel_size=3, stride=1,
                                padding=1, bias=False)
         # 1st block
         self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
@@ -62,17 +63,17 @@ class WideResNet(nn.Module):
         # global average pooling and classifier
         self.bn1 = nn.BatchNorm2d(nChannels[3])
         self.relu = nn.ReLU(inplace=True)
-        self.fc = nn.Linear(nChannels[3], num_classes)
+        self.fc = custom.Linear_Class(nChannels[3], num_classes)
         self.nChannels = nChannels[3]
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
+            if isinstance(m, custom.Con2d_Class):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
+            elif isinstance(m, custom.Linear_Class):
                 m.bias.data.zero_()
 
     def forward(self, x):
