@@ -9,6 +9,7 @@ import from https://github.com/prlz77/ResNeXt.pytorch/blob/master/models/model.p
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import init
+import models.custom as custom
 
 __all__ = ['resnext']
 
@@ -27,16 +28,16 @@ class ResNeXtBottleneck(nn.Module):
         """
         super(ResNeXtBottleneck, self).__init__()
         D = cardinality * out_channels // widen_factor
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv_reduce = custom.Con2d_Class(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
+        self.conv_conv = custom.Con2d_Class(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.conv_expand = custom.Con2d_Class(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_expand = nn.BatchNorm2d(out_channels)
 
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
+            self.shortcut.add_module('shortcut_conv', custom.Con2d_Class(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
             self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
@@ -72,16 +73,16 @@ class CifarResNeXt(nn.Module):
         self.output_size = 64
         self.stages = [64, 64 * self.widen_factor, 128 * self.widen_factor, 256 * self.widen_factor]
 
-        self.conv_1_3x3 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
+        self.conv_1_3x3 = custom.Con2d_Class(3, 64, 3, 1, 1, bias=False)
         self.bn_1 = nn.BatchNorm2d(64)
         self.stage_1 = self.block('stage_1', self.stages[0], self.stages[1], 1)
         self.stage_2 = self.block('stage_2', self.stages[1], self.stages[2], 2)
         self.stage_3 = self.block('stage_3', self.stages[2], self.stages[3], 2)
-        self.classifier = nn.Linear(1024, num_classes)
+        self.classifier = custom.Linear_Class(1024, num_classes)
         init.kaiming_normal(self.classifier.weight)
 
         for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+            if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
                 init.kaiming_normal_(m.weight)
                 if m.bias is not None:
                     m.bias.data.zero_()
