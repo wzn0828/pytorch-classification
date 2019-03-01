@@ -8,12 +8,18 @@ from torch.nn.modules.linear import Linear
 
 Linear_Class = nn.Linear
 Con2d_Class = nn.Conv2d
+BN_Class = nn.BatchNorm2d
 
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d):
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d):
+
     global Linear_Class
     Linear_Class = linear
+
     global Con2d_Class
     Con2d_Class = conv
+
+    global BN_Class
+    BN_Class = bn
 
 
 class LinearProDis(Linear):
@@ -66,7 +72,8 @@ class Conv2dProDis(Conv2d):
         super(Conv2dProDis, self).__init__(
             in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
-        self.ones_weight = torch.ones((1, 1, self.weight.size(2), self.weight.size(3))).cuda()
+        # self.ones_weight = torch.ones((1, 1, self.weight.size(2), self.weight.size(3))).cuda()
+        self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
 
         # self.register_buffer('a1_min', torch.tensor(0.))
         # self.register_buffer('a2_max', torch.tensor(0.))
