@@ -117,9 +117,12 @@ class ResNet(nn.Module):
         for m in self.modules():
             if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
                 init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
