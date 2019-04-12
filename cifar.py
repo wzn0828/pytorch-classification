@@ -12,7 +12,8 @@ import random
 
 import torch
 import torch.nn as nn
-import torch.nn.parallel
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
@@ -20,6 +21,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import models.cifar as models
 from models.custom import *
+from modules.bn import InPlaceABNSync
 
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 
@@ -88,19 +90,35 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
+args.gpu_id = '1,2'
+
+args.dataset = 'cifar100'
 args.arch = 'resnet'
 args.depth = 110
-args.wd = 0
+args.block_name = 'basicblock'
+args.weight_decay = 1e-4
+
+# set_gl_variable(LinearProDis, Conv2dProDis, bn=InPlaceABNSync)
+# set_gl_variable(bn=InPlaceABNSync)
+
+args.resume = '/home/wzn/PycharmProjects/pytorch-classification/Experiments/cifar100_resnet110_basic_wd1e-4_prodis-linear-conv2d/model_best.pth.tar'
+args.evaluate = True
+
+args.checkpoint = 'Experiments/cifar100_resnet110_basic_wd1e-4_prodis-linear-conv2d_finetune'
+# args.checkpoint = 'Experiments/debug'
 
 args.train_batch = 128
 args.schedule = [81, 122]
-args.dataset = 'cifar10'
 args.epochs = 164
-args.checkpoint = 'checkpoints/cifar10/resnet-110'
+
+args.data_path = '/home/wzn/Datasets/Classification'
 
 args.manualSeed = 123
-# ------local config------ #
+args.print_freq = 50
 
+global tb_summary_writer
+tb_summary_writer = tb and tb.SummaryWriter(args.checkpoint)
+# ------local config------ #
 
 state = {k: v for k, v in args._get_kwargs()}
 
@@ -108,6 +126,8 @@ state = {k: v for k, v in args._get_kwargs()}
 assert args.dataset == 'cifar10' or args.dataset == 'cifar100', 'Dataset can only be cifar10 or cifar100.'
 
 # Use CUDA
+os.environ['MASTER_ADDR'] = '127.0.0.1'
+os.environ['MASTER_PORT'] = '9006'
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
 use_cuda = torch.cuda.is_available()
 
@@ -189,7 +209,12 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
 
-    model = torch.nn.DataParallel(model).cuda()
+    # use distributed package
+    dist.init_process_group(backend="nccl", rank=0, world_size=1)
+    model = DistributedDataParallel(model.cuda(), device_ids=[0,1])
+
+    # model = torch.nn.DataParallel(model).cuda()
+
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
     criterion = nn.CrossEntropyLoss()
@@ -199,7 +224,7 @@ def main():
                                                         milestones=args.schedule, last_epoch=args.start_epoch - 1)
 
     # Resume
-    title = 'cifar-10-' + args.arch
+    title = args.dataset + '-' + args.arch
     if args.resume:
         # Load checkpoint.
         print('==> Resuming from checkpoint..')
@@ -208,24 +233,23 @@ def main():
         checkpoint = torch.load(args.resume)
         best_acc = checkpoint['best_acc']
         start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
+        model.load_state_dict(checkpoint['state_dict'], strict=False)
         optimizer.load_state_dict(checkpoint['optimizer'])
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title, resume=True)
     else:
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
-
-    # if args.arch in ['resnet'] and args.depth >= 110:
-        # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
-        # then switch back. In this implementation it will correspond for first epoch.
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = args.lr*0.1
+        # if args.arch in ['resnet'] and args.depth >= 110:
+            # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
+            # then switch back. In this implementation it will correspond for first epoch.
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = args.lr*0.1
 
     if args.evaluate:
-        print('\nEvaluation only')
+        # print('\nEvaluation only')
         test_loss, test_acc = test(testloader, model, criterion, start_epoch, use_cuda)
         print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
-        return
+        # return
 
     # Train and val
     for epoch in range(start_epoch, args.epochs):
