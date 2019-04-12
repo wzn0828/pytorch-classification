@@ -24,10 +24,10 @@ class BasicBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.bn1 = custom.BN_Class(planes)
+        self.relu = nn.ReLU(inplace=False)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn2 = custom.BN_Class(planes)
         self.downsample = downsample
         self.stride = stride
 
@@ -44,7 +44,7 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
-        out += residual
+        out = out + residual
         out = self.relu(out)
 
         return out
@@ -56,12 +56,12 @@ class Bottleneck(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = custom.Con2d_Class(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn1 = custom.BN_Class(planes)
         self.conv2 = custom.Con2d_Class(planes, planes, kernel_size=3, stride=stride,
                                padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn2 = custom.BN_Class(planes)
         self.conv3 = custom.Con2d_Class(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.bn3 = custom.BN_Class(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -106,8 +106,8 @@ class ResNet(nn.Module):
 
         self.inplanes = 16
         self.conv1 = custom.Con2d_Class(3, 16, kernel_size=3, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.relu = nn.ReLU(inplace=True)
+        self.bn1 = custom.BN_Class(16)
+        self.relu = nn.ReLU(inplace=False)
         self.layer1 = self._make_layer(block, 16, n)
         self.layer2 = self._make_layer(block, 32, n, stride=2)
         self.layer3 = self._make_layer(block, 64, n, stride=2)
@@ -119,7 +119,7 @@ class ResNet(nn.Module):
                 init.kaiming_normal_(m.weight)
                 if m.bias is not None:
                     m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, custom.BN_Class):
                 m.weight.data.fill_(1)
                 if m.bias is not None:
                     m.bias.data.zero_()
@@ -130,7 +130,7 @@ class ResNet(nn.Module):
             downsample = nn.Sequential(
                 custom.Con2d_Class(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
+                custom.BN_Class(planes * block.expansion),
             )
 
         layers = []
