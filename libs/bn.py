@@ -111,7 +111,7 @@ class InPlaceABNSync(nn.Module):
     This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
     """
 
-    def __init__(self, num_features, devices=None, eps=1e-5, momentum=0.1, affine=True, activation="leaky_relu",
+    def __init__(self, num_features, devices=None, eps=1e-5, momentum=0.1, affine=True, activation="none",
                  slope=0.01):
         """Creates a synchronized, InPlace Activated Batch Normalization module
 
