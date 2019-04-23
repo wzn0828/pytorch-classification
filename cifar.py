@@ -10,10 +10,6 @@ import shutil
 import time
 import random
 
-import torch
-import torch.nn as nn
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
@@ -21,9 +17,9 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import models.cifar as models
 from models.custom import *
-from modules.bn import InPlaceABNSync
 
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
+from libs import InPlaceABNSync as libs_IABNS
 
 try:
     import tensorboardX as tb
@@ -209,19 +205,12 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
 
-    # use distributed package
-    dist.init_process_group(backend="nccl", rank=0, world_size=1)
-    model = DistributedDataParallel(model.cuda(), device_ids=[0,1])
-
-    # model = torch.nn.DataParallel(model).cuda()
+    model = torch.nn.DataParallel(model).cuda()
 
     cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=args.schedule, last_epoch=args.start_epoch - 1)
 
     # Resume
     title = args.dataset + '-' + args.arch
@@ -244,6 +233,11 @@ def main():
             # then switch back. In this implementation it will correspond for first epoch.
         for param_group in optimizer.param_groups:
             param_group['lr'] = args.lr*0.1
+
+        start_epoch = args.start_epoch
+
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                        milestones=args.schedule, last_epoch=start_epoch - 1)
 
     if args.evaluate:
         # print('\nEvaluation only')
