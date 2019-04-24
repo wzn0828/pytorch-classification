@@ -21,7 +21,15 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import models.imagenet as customized_models
 
+from utils.misc import add_summary_value
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
+from libs import InPlaceABNSync as libs_IABNS
+
+try:
+    import tensorboardX as tb
+except ImportError:
+    print("tensorboardX is not installed")
+    tb = None
 
 # Models
 default_model_names = sorted(name for name in models.__dict__
@@ -92,6 +100,10 @@ parser.add_argument('--gpu-id', default='0', type=str,
 
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
+
+# tensorboard summary
+global tb_summary_writer
+tb_summary_writer = tb and tb.SummaryWriter(args.checkpoint)
 
 # Use CUDA
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
@@ -184,20 +196,25 @@ def main():
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
 
 
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                        milestones=args.schedule, last_epoch=start_epoch - 1)
+
     if args.evaluate:
-        print('\nEvaluation only')
+        # print('\nEvaluation only')
         test_loss, test_acc = test(val_loader, model, criterion, start_epoch, use_cuda)
         print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
-        return
+        # return
 
     # Train and val
     for epoch in range(start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch)
+        lr_scheduler.step()
 
+        state['lr'] = optimizer.param_groups[0]['lr']
+        add_summary_value(tb_summary_writer, 'learning_rate', state['lr'], epoch + 1)
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
-        train_loss, train_acc = train(train_loader, model, criterion, optimizer, epoch, use_cuda)
-        test_loss, test_acc = test(val_loader, model, criterion, epoch, use_cuda)
+        train_loss, train_acc = train(train_loader, model, criterion, optimizer, epoch+1, use_cuda)
+        test_loss, test_acc = test(val_loader, model, criterion, epoch+1, use_cuda)
 
         # append logger file
         logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
@@ -210,7 +227,7 @@ def main():
                 'state_dict': model.state_dict(),
                 'acc': test_acc,
                 'best_acc': best_acc,
-                'optimizer' : optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
             }, is_best, checkpoint=args.checkpoint)
 
     logger.close()
@@ -246,9 +263,9 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
-        losses.update(loss.data[0], inputs.size(0))
-        top1.update(prec1[0], inputs.size(0))
-        top5.update(prec5[0], inputs.size(0))
+        losses.update(loss.item(), inputs.size(0))
+        top1.update(prec1.item(), inputs.size(0))
+        top5.update(prec5.item(), inputs.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -258,6 +275,16 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
+
+        if batch_idx % args.print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                      epoch, batch_idx, len(train_loader), batch_time=batch_time,
+                      data_time=data_time, loss=losses, top1=top1, top5=top5))
 
         # plot progress
         bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
@@ -273,6 +300,11 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
                     )
         bar.next()
     bar.finish()
+
+    add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
+
     return (losses.avg, top1.avg)
 
 def test(val_loader, model, criterion, epoch, use_cuda):
@@ -287,47 +319,68 @@ def test(val_loader, model, criterion, epoch, use_cuda):
     # switch to evaluate mode
     model.eval()
 
-    end = time.time()
-    bar = Bar('Processing', max=len(val_loader))
-    for batch_idx, (inputs, targets) in enumerate(val_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-        inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
-
-        # compute output
-        outputs = model(inputs)
-        loss = criterion(outputs, targets)
-
-        # measure accuracy and record loss
-        prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
-        losses.update(loss.data[0], inputs.size(0))
-        top1.update(prec1[0], inputs.size(0))
-        top5.update(prec5[0], inputs.size(0))
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
+    with torch.no_grad():
         end = time.time()
+        bar = Bar('Processing', max=len(val_loader))
+        for batch_idx, (inputs, targets) in enumerate(val_loader):
+            # measure data loading time
+            data_time.update(time.time() - end)
 
-        # plot progress
-        bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                    batch=batch_idx + 1,
-                    size=len(val_loader),
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    total=bar.elapsed_td,
-                    eta=bar.eta_td,
-                    loss=losses.avg,
-                    top1=top1.avg,
-                    top5=top5.avg,
-                    )
-        bar.next()
-    bar.finish()
+            if use_cuda:
+                inputs, targets = inputs.cuda(), targets.cuda(async=True)
+            inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
+
+            # compute output
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+
+            # measure accuracy and record loss
+            prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
+            losses.update(loss.item(), inputs.size(0))
+            top1.update(prec1.item(), inputs.size(0))
+            top5.update(prec5.item(), inputs.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            # plot progress
+            bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
+                        batch=batch_idx + 1,
+                        size=len(val_loader),
+                        data=data_time.avg,
+                        bt=batch_time.avg,
+                        total=bar.elapsed_td,
+                        eta=bar.eta_td,
+                        loss=losses.avg,
+                        top1=top1.avg,
+                        top5=top5.avg,
+                        )
+
+            if batch_idx % args.print_freq == 0:
+                print('Test: [{0}/{1}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                      'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
+                    batch_idx, len(val_loader), batch_time=batch_time, loss=losses,
+                    top1=top1, top5=top5))
+
+            bar.next()
+        bar.finish()
+
+    print(' * Prec@1 {top1.avg:.3f}\t'
+          ' * Prec@5 {top5.avg:.3f}'
+          .format(top1=top1, top5=top5))
+
+    if epoch is not None:
+        add_summary_value(tb_summary_writer, 'Loss/test', losses.avg, epoch)
+        add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
+        add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
+
     return (losses.avg, top1.avg)
 
-def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth.tar'):
     filepath = os.path.join(checkpoint, filename)
     torch.save(state, filepath)
     if is_best:
