@@ -74,3 +74,8 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def add_summary_value(writer, key, value, iteration):
+    if writer:
+        writer.add_scalar(key, value, iteration)

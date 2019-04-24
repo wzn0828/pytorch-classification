@@ -18,6 +18,7 @@ import torchvision.datasets as datasets
 import models.cifar as models
 from models.custom import *
 
+from utils.misc import add_summary_value
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 from libs import InPlaceABNSync as libs_IABNS
 
@@ -222,7 +223,7 @@ def main():
         checkpoint = torch.load(args.resume)
         best_acc = checkpoint['best_acc']
         start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'], strict=False)
+        model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title, resume=True)
     else:
@@ -430,10 +431,6 @@ def adjust_learning_rate(optimizer, epoch):
         state['lr'] *= args.gamma
         for param_group in optimizer.param_groups:
             param_group['lr'] = state['lr']
-
-def add_summary_value(writer, key, value, iteration):
-    if writer:
-        writer.add_scalar(key, value, iteration)
 
 if __name__ == '__main__':
     main()
