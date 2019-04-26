@@ -20,6 +20,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 import models.imagenet as customized_models
+from models.custom import *
 
 from utils.misc import add_summary_value
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
@@ -99,6 +100,29 @@ parser.add_argument('--gpu-id', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 
 args = parser.parse_args()
+
+# ------local config------ #
+args.data = '/media/HDD_4TB/wzn/Datasets/ILSVRC'
+args.workers = 4
+args.epochs = 10
+args.start_epoch = 0
+args.train_batch = 60
+args.test_batch = 200
+args.lr = 0.0001
+
+args.arch = 'resnet101'
+args.checkpoint = 'Experiments/Imagenet_resnet101_PR_train_lr-1e-4'
+set_gl_variable(LinearProDis, Conv2dProDis, bn=libs_IABNS)
+
+args.evaluate = True
+args.pretrained = True
+
+args.manualSeed = 123
+args.print_freq = 10
+
+args.gpu_id = '0,1,2,3'
+# ------local config------ #
+
 state = {k: v for k, v in args._get_kwargs()}
 
 # tensorboard summary
@@ -134,7 +158,7 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(traindir, transforms.Compose([
-            transforms.RandomSizedCrop(224),
+            transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             normalize,
@@ -144,7 +168,7 @@ def main():
 
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Scale(256),
+            transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
             normalize,
