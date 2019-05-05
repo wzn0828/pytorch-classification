@@ -20,7 +20,7 @@ from models.custom import *
 
 from utils.misc import add_summary_value
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
-from libs import InPlaceABNSync as libs_IABNS
+# from libs import InPlaceABNSync as libs_IABNS
 
 try:
     import tensorboardX as tb
@@ -229,16 +229,16 @@ def main():
     else:
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
-        # if args.arch in ['resnet'] and args.depth >= 110:
-            # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
-            # then switch back. In this implementation it will correspond for first epoch.
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = args.lr*0.1
-
-        start_epoch = args.start_epoch
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=args.schedule, last_epoch=start_epoch - 1)
+                                                        milestones=args.schedule, last_epoch=start_epoch-1)
+
+    # if args.arch in ['resnet'] and args.depth >= 110:
+    # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
+    # then switch back. In this implementation it will correspond for first epoch.
+    if not args.resume:
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = args.lr * 0.1
 
     if args.evaluate:
         # print('\nEvaluation only')
