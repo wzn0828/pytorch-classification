@@ -19,7 +19,7 @@ import models.cifar as models
 from models.custom import *
 
 from utils.misc import add_summary_value
-from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
+from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
 # from libs import InPlaceABNSync as libs_IABNS
 
 try:
@@ -253,7 +253,7 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
-        lr_scheduler.step()
+        lr_scheduler.step(epoch+1)
 
         test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
 
@@ -290,7 +290,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     top5 = AverageMeter()
     end = time.time()
 
-    bar = Bar('Processing', max=len(trainloader))
+    # bar = Bar('Processing', max=len(trainloader))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -328,20 +328,20 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                       epoch, batch_idx, len(trainloader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
 
-        # plot progress
-        bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                    batch=batch_idx + 1,
-                    size=len(trainloader),
-                    data=data_time.avg,
-                    bt=batch_time.avg,
-                    total=bar.elapsed_td,
-                    eta=bar.eta_td,
-                    loss=losses.avg,
-                    top1=top1.avg,
-                    top5=top5.avg,
-                    )
-        bar.next()
-    bar.finish()
+    #     # plot progress
+    #     bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
+    #                 batch=batch_idx + 1,
+    #                 size=len(trainloader),
+    #                 data=data_time.avg,
+    #                 bt=batch_time.avg,
+    #                 total=bar.elapsed_td,
+    #                 eta=bar.eta_td,
+    #                 loss=losses.avg,
+    #                 top1=top1.avg,
+    #                 top5=top5.avg,
+    #                 )
+    #     bar.next()
+    # bar.finish()
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
@@ -363,7 +363,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
 
     with torch.no_grad():
         end = time.time()
-        bar = Bar('Processing', max=len(testloader))
+        # bar = Bar('Processing', max=len(testloader))
         for batch_idx, (inputs, targets) in enumerate(testloader):
             # measure data loading time
             data_time.update(time.time() - end)
@@ -387,17 +387,17 @@ def test(testloader, model, criterion, epoch, use_cuda):
             end = time.time()
 
             # plot progress
-            bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                        batch=batch_idx + 1,
-                        size=len(testloader),
-                        data=data_time.avg,
-                        bt=batch_time.avg,
-                        total=bar.elapsed_td,
-                        eta=bar.eta_td,
-                        loss=losses.avg,
-                        top1=top1.avg,
-                        top5=top5.avg,
-                        )
+            # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
+            #             batch=batch_idx + 1,
+            #             size=len(testloader),
+            #             data=data_time.avg,
+            #             bt=batch_time.avg,
+            #             total=bar.elapsed_td,
+            #             eta=bar.eta_td,
+            #             loss=losses.avg,
+            #             top1=top1.avg,
+            #             top5=top5.avg,
+            #             )
             if batch_idx % args.print_freq == 0:
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -406,8 +406,8 @@ def test(testloader, model, criterion, epoch, use_cuda):
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                     batch_idx, len(testloader), batch_time=batch_time, loss=losses,
                     top1=top1, top5=top5))
-            bar.next()
-        bar.finish()
+        #     bar.next()
+        # bar.finish()
 
     print(' * Prec@1 {top1.avg:.3f}\t'
           ' * Prec@5 {top5.avg:.3f}'
