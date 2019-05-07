@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.nn import init
 from torch.nn.modules.conv import Conv2d
 from torch.nn.modules.linear import Linear
+import math
 
 Linear_Class = nn.Linear
 Con2d_Class = nn.Conv2d
@@ -32,14 +33,22 @@ class Linear(nn.Linear):
 
     def __init__(self, in_features, out_features, bias=True, eps=1e-8):
         super(Linear, self).__init__(in_features, out_features, bias)
-        self.register_buffer('eps', torch.tensor(eps))
+        # self.register_buffer('eps', torch.tensor(eps))
+        self.eps = eps
 
     def forward(self, x):
-        w_len = torch.sqrt((torch.t(self.weight.pow(2).sum(dim=1, keepdim=True))).clamp_(min=0.0))  # 1*num_classes
-        x_len = torch.sqrt((x.pow(2).sum(dim=1, keepdim=True)).clamp_(min=0.0))  # batch*1
+        w_len = torch.sqrt(torch.t(self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # 1*num_classes
+        x_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))   # batch*1
 
         wx_len = torch.matmul(x_len, w_len)  # batch*num_classes
-        cos_theta = (torch.matmul(x, torch.t(self.weight)) / torch.max(wx_len, self.eps)).clamp_(-1.0, 1.0)    # batch*num_classes
+        cos_theta = (torch.matmul(x, torch.t(self.weight)) / (wx_len.clamp_(min=self.eps))).clamp_(-1.0, 1.0)    # batch*num_classes
+
+        if (wx_len == 0).sum() > 0:
+            print('min of w_len:', w_len.min().item())
+            print('mean of w_len:', w_len.mean().item())
+            print('min of x_len:', x_len.min().item())
+            print('mean of x_len:', x_len.mean().item())
+            print('\n')
 
         del wx_len
 
@@ -54,7 +63,7 @@ class Linear(nn.Linear):
             else:
                 assert '_detach is not valid!'
 
-        out = torch.max(torch.matmul(x_len, w_len), self.eps) * cos_theta
+        out = (torch.matmul(x_len, w_len).clamp_(min=self.eps)) * cos_theta
         del x_len, w_len, cos_theta
 
         if self.bias is not None:
@@ -70,7 +79,8 @@ class Conv2d(nn.Conv2d):
         super(Conv2d, self).__init__(
             in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
-        self.register_buffer('eps', torch.tensor(eps))
+        self.eps = eps
+        # self.register_buffer('eps', torch.tensor(eps))
         # self.ones_weight = torch.ones((1, 1, self.weight.size(2), self.weight.size(3))).cuda()
         self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
 
@@ -78,16 +88,27 @@ class Conv2d(nn.Conv2d):
         # self.register_buffer('a2_max', torch.tensor(0.))
 
     def forward(self, input):
-        w_len = torch.sqrt((self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).t()).clamp_(min=0.0))  # 1*out_channels
+        self.weight = self.weight.contiguous()
+        w_len = torch.sqrt(self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).t().clamp_(min=self.eps))  # 1*out_channels
         x_len = input.pow(2).sum(dim=1, keepdim=True)                                          # batch*1*H_in*W_in
-        x_len = torch.sqrt((F.conv2d(x_len, self.ones_weight, None,
+        x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
                               self.stride,
-                              self.padding, self.dilation, self.groups)).clamp_(min=0.0))                             # batch*1*H_out*W_out
+                              self.padding, self.dilation, self.groups).clamp_(min=self.eps))                             # batch*1*H_out*W_out
 
         wx_len = x_len * (w_len.unsqueeze(-1).unsqueeze(-1))                        # batch*out_channels*H_out*W_out
 
-        cos_theta = (F.conv2d(input, self.weight, None, self.stride,
-                       self.padding, self.dilation, self.groups) / torch.max(wx_len, self.eps)).clamp_(-1.0, 1.0)                                   # batch*out_channels*H_out*W_out
+        cos_theta = F.conv2d(input, self.weight, None, self.stride,
+                       self.padding, self.dilation, self.groups) / wx_len.clamp_(min=self.eps)                                   # batch*out_channels*H_out*W_out
+
+        # if (wx_len == 0).sum() > 0:
+        if math.isnan(w_len.min().item()):
+            print(self.weight.view(self.weight.size(0), -1)[torch.isnan(w_len.squeeze())])
+            print('min of w_len:', w_len.min().item())
+            print('mean of w_len:', w_len.mean().item())
+            print('min of x_len:', x_len.min().item())
+            print('mean of x_len:', x_len.mean().item())
+            print('\n')
+
         del wx_len
 
         if _detach is not None:
@@ -101,7 +122,7 @@ class Conv2d(nn.Conv2d):
             else:
                 assert '_detach is not valid!'
 
-        out = torch.max(x_len * (w_len.unsqueeze(-1).unsqueeze(-1)), self.eps) * cos_theta
+        out = (x_len * (w_len.unsqueeze(-1).unsqueeze(-1))).clamp_(min=self.eps) * cos_theta
         del x_len, w_len, cos_theta
 
         if self.bias is not None:
@@ -212,15 +233,16 @@ class LinearPR_Detach(nn.Linear):
     def __init__(self, in_features, out_features, bias=True, eps=1e-8):
         super(LinearPR_Detach, self).__init__(in_features, out_features, bias)
 
-        self.register_buffer('eps', torch.tensor(eps))
+        self.eps = eps
+        # self.register_buffer('eps', torch.tensor(eps))
         # self.register_buffer('a1_min', torch.tensor(0.))
         # self.register_buffer('a2_max', torch.tensor(0.))
 
     def forward(self, x):
-        w_len = torch.sqrt((torch.t(self.weight.pow(2).sum(dim=1, keepdim=True))).clamp_(min=0.0))  # 1*num_classes
-        x_len = torch.sqrt((x.pow(2).sum(dim=1, keepdim=True)).clamp_(min=0.0))  # batch*1
+        w_len = torch.sqrt((torch.t(self.weight.pow(2).sum(dim=1, keepdim=True))).clamp_(min=self.eps))  # 1*num_classes
+        x_len = torch.sqrt((x.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # batch*1
 
-        cos_theta = (torch.matmul(x, torch.t(self.weight)) / torch.max(torch.matmul(x_len, w_len), self.eps)).clamp_(-1.0, 1.0)    # batch*num_classes
+        cos_theta = (torch.matmul(x, torch.t(self.weight)) / torch.matmul(x_len, w_len).clamp_(min=self.eps)).clamp_(-1.0, 1.0)    # batch*num_classes
         abs_sin_theta = torch.sqrt(1.0 - cos_theta**2)    # batch*num_classes
 
         if _detach is not None:
@@ -234,7 +256,7 @@ class LinearPR_Detach(nn.Linear):
             else:
                 assert '_detach is not valid!'
 
-        out = torch.max(torch.matmul(x_len, w_len), self.eps) * (abs_sin_theta.detach()*cos_theta + cos_theta.detach()*(1.0-abs_sin_theta))
+        out = torch.matmul(x_len, w_len).clamp_(min=self.eps) * (abs_sin_theta.detach()*cos_theta + cos_theta.detach()*(1.0-abs_sin_theta))
         del w_len, x_len, cos_theta, abs_sin_theta
 
         if self.bias is not None:
@@ -251,23 +273,24 @@ class Conv2dPR_Detach(nn.Conv2d):
             in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
 
         # self.ones_weight = torch.ones((1, 1, self.weight.size(2), self.weight.size(3))).cuda()
-        self.register_buffer('eps', torch.tensor(eps))
+        # self.register_buffer('eps', torch.tensor(eps))
+        self.eps = eps
         self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
 
         # self.register_buffer('a1_min', torch.tensor(0.))
         # self.register_buffer('a2_max', torch.tensor(0.))
 
     def forward(self, input):
-        w_len = torch.sqrt((self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).t()).clamp_(min=0.0))  # 1*out_channels
+        w_len = torch.sqrt((self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).t()).clamp_(min=self.eps))  # 1*out_channels
         x_len = input.pow(2).sum(dim=1, keepdim=True)                                          # batch*1*H_in*W_in
         x_len = torch.sqrt((F.conv2d(x_len, self.ones_weight, None,
                               self.stride,
-                              self.padding, self.dilation, self.groups)).clamp_(min=0.0))                             # batch*1*H_out*W_out
+                              self.padding, self.dilation, self.groups)).clamp_(min=self.eps))                             # batch*1*H_out*W_out
 
         wx_len = x_len * (w_len.unsqueeze(-1).unsqueeze(-1))                        # batch*out_channels*H_out*W_out
 
         cos_theta = (F.conv2d(input, self.weight, None, self.stride,
-                       self.padding, self.dilation, self.groups) / torch.max(wx_len, self.eps)).clamp_(-1.0, 1.0)                                     # batch*out_channels*H_out*W_out
+                       self.padding, self.dilation, self.groups) / wx_len.clamp_(min=self.eps)).clamp_(-1.0, 1.0)                                     # batch*out_channels*H_out*W_out
         del wx_len
         abs_sin_theta = torch.sqrt(1.0 - cos_theta ** 2)
 
@@ -282,7 +305,7 @@ class Conv2dPR_Detach(nn.Conv2d):
             else:
                 assert '_detach is not valid!'
 
-        out = torch.max(x_len * (w_len.unsqueeze(-1).unsqueeze(-1)), self.eps) * (
+        out = (x_len * (w_len.unsqueeze(-1).unsqueeze(-1))).clamp_(min=self.eps) * (
                             abs_sin_theta.detach() * cos_theta + cos_theta.detach() * (1.0 - abs_sin_theta))
         del w_len, x_len, cos_theta, abs_sin_theta
 
