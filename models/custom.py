@@ -60,6 +60,8 @@ class Linear(nn.Linear):
             elif _detach == 'wx':
                 w_len = w_len.detach()
                 x_len = x_len.detach()
+            elif _detach == 'theta':
+                cos_theta = cos_theta.detach()
             else:
                 assert '_detach is not valid!'
 
@@ -119,6 +121,8 @@ class Conv2d(nn.Conv2d):
             elif _detach == 'wx':
                 w_len = w_len.detach()
                 x_len = x_len.detach()
+            elif _detach == 'theta':
+                cos_theta = cos_theta.detach()
             else:
                 assert '_detach is not valid!'
 
@@ -253,6 +257,9 @@ class LinearPR_Detach(nn.Linear):
             elif _detach == 'wx':
                 w_len = w_len.detach()
                 x_len = x_len.detach()
+            elif _detach == 'theta':
+                cos_theta = cos_theta.detach()
+                abs_sin_theta = abs_sin_theta.detach()
             else:
                 assert '_detach is not valid!'
 
@@ -302,6 +309,9 @@ class Conv2dPR_Detach(nn.Conv2d):
             elif _detach == 'wx':
                 w_len = w_len.detach()
                 x_len = x_len.detach()
+            elif _detach == 'theta':
+                cos_theta = cos_theta.detach()
+                abs_sin_theta = abs_sin_theta.detach()
             else:
                 assert '_detach is not valid!'
 
