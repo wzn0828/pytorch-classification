@@ -97,8 +97,8 @@ class Conv2d(nn.Conv2d):
 
         wx_len = x_len * (w_len.unsqueeze(-1).unsqueeze(-1))                        # batch*out_channels*H_out*W_out
 
-        cos_theta = F.conv2d(input, self.weight, None, self.stride,
-                       self.padding, self.dilation, self.groups) / wx_len.clamp_(min=self.eps)                                   # batch*out_channels*H_out*W_out
+        cos_theta = (F.conv2d(input, self.weight, None, self.stride,
+                       self.padding, self.dilation, self.groups) / wx_len.clamp_(min=self.eps)).clamp_(-1.0, 1.0)                                   # batch*out_channels*H_out*W_out
 
         # if (wx_len == 0).sum() > 0:
         if math.isnan(w_len.min().item()):
