@@ -11,9 +11,10 @@ Linear_Class = nn.Linear
 Con2d_Class = nn.Conv2d
 BN_Class = nn.BatchNorm2d
 _detach = None
+_norm = None
 
 
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None):
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, norm=None):
 
     global Linear_Class
     Linear_Class = linear
@@ -27,6 +28,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _detach
     if detach is not None:
         _detach = detach
+
+    global _norm
+    if norm is not None:
+        _norm = norm
 
 
 class Linear(nn.Linear):
@@ -327,6 +332,119 @@ class Conv2dPR_Detach(nn.Conv2d):
             out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
 
         return out
+
+
+
+
+class LinearNorm(nn.Linear):
+
+    def __init__(self, in_features, out_features, bias=True, eps=1e-8):
+        super(LinearNorm, self).__init__(in_features, out_features, bias)
+        # self.register_buffer('eps', torch.tensor(eps))
+        self.eps = eps
+        if _norm == '3-1':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
+        elif _norm == '3-2':
+            self.g = nn.Parameter(torch.ones(1, 1))
+        elif _norm == '4':
+            self.v = nn.Parameter(torch.ones(1, 1))
+        elif _norm == '5-1':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
+            self.v = nn.Parameter(torch.ones(1, 1))
+        elif _norm == '5-2':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.v = nn.Parameter(torch.ones(1, 1))
+
+    def forward(self, x):
+        if _norm == '1':
+            self.weight = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+
+        elif _norm == '2':
+            x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        elif _norm == '3-1' or _norm == '3-2':
+            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
+
+        elif _norm == '4':
+            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        elif _norm == '5-1' or _norm == '5-2':
+            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
+            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        return F.linear(x, self.weight, self.bias)
+
+
+
+
+class Conv2dNorm(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True, eps=1e-8):
+        super(Conv2dNorm, self).__init__(
+            in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+
+        self.eps = eps
+        self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
+        if _norm == '3-1':
+            self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
+        elif _norm == '3-2':
+            self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
+        elif _norm == '4':
+            self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
+        elif _norm == '5-1':
+            self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
+            self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
+        elif _norm == '5-2':
+            self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
+            self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
+
+
+    def forward(self, x):
+        if _norm == '1':
+            self.weight = self.weight / torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
+
+        elif _norm == '2':
+            x_len = x.pow(2).sum(dim=1, keepdim=True)  # batch*1*H_in*W_in
+            x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
+                                        self.stride,
+                                        self.padding, self.dilation, self.groups).clamp_(
+                min=self.eps))  # batch*1*H_out*W_out
+            x = x / x_len
+            del x_len
+
+        elif _norm == '3-1' or _norm == '3-2':
+            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
+
+        elif _norm == '4':
+            x_len = x.pow(2).sum(dim=1, keepdim=True)  # batch*1*H_in*W_in
+            x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
+                                        self.stride,
+                                        self.padding, self.dilation, self.groups).clamp_(
+                min=self.eps))  # batch*1*H_out*W_out
+            x = torch.abs(self.v) * x / x_len
+            del x_len
+
+        elif _norm == '5-1' or _norm == '5-2':
+            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
+
+            x_len = x.pow(2).sum(dim=1, keepdim=True)  # batch*1*H_in*W_in
+            x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
+                                        self.stride,
+                                        self.padding, self.dilation, self.groups).clamp_(
+                min=self.eps))  # batch*1*H_out*W_out
+            x = torch.abs(self.v) * x / x_len
+            del x_len
+
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 
