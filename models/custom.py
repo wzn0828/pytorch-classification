@@ -68,7 +68,7 @@ class Linear(nn.Linear):
             elif _detach == 'theta':
                 cos_theta = cos_theta.detach()
             else:
-                assert '_detach is not valid!'
+                raise AssertionError('_detach is not valid!')
 
         out = (torch.matmul(x_len, w_len).clamp_(min=self.eps)) * cos_theta
         del x_len, w_len, cos_theta
@@ -129,7 +129,7 @@ class Conv2d(nn.Conv2d):
             elif _detach == 'theta':
                 cos_theta = cos_theta.detach()
             else:
-                assert '_detach is not valid!'
+                raise AssertionError('_detach is not valid!')
 
         out = (x_len * (w_len.unsqueeze(-1).unsqueeze(-1))).clamp_(min=self.eps) * cos_theta
         del x_len, w_len, cos_theta
@@ -266,7 +266,7 @@ class LinearPR_Detach(nn.Linear):
                 cos_theta = cos_theta.detach()
                 abs_sin_theta = abs_sin_theta.detach()
             else:
-                assert '_detach is not valid!'
+                raise AssertionError('_detach is not valid!')
 
         out = torch.matmul(x_len, w_len).clamp_(min=self.eps) * (abs_sin_theta.detach()*cos_theta + cos_theta.detach()*(1.0-abs_sin_theta))
         del w_len, x_len, cos_theta, abs_sin_theta
@@ -318,7 +318,7 @@ class Conv2dPR_Detach(nn.Conv2d):
                 cos_theta = cos_theta.detach()
                 abs_sin_theta = abs_sin_theta.detach()
             else:
-                assert '_detach is not valid!'
+                raise AssertionError('_detach is not valid!')
 
         out = (x_len * (w_len.unsqueeze(-1).unsqueeze(-1))).clamp_(min=self.eps) * (
                             abs_sin_theta.detach() * cos_theta + cos_theta.detach() * (1.0 - abs_sin_theta))
@@ -357,22 +357,25 @@ class LinearNorm(nn.Linear):
 
     def forward(self, x):
         if _norm == '1':
-            self.weight = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+            self.weight.data = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
 
         elif _norm == '2':
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
         elif _norm == '3-1' or _norm == '3-2':
-            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
 
         elif _norm == '4':
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
         elif _norm == '5-1' or _norm == '5-2':
-            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        else:
+            raise AssertionError('_norm is not valid!')
 
         return F.linear(x, self.weight, self.bias)
 
@@ -404,7 +407,7 @@ class Conv2dNorm(nn.Conv2d):
 
     def forward(self, x):
         if _norm == '1':
-            self.weight = self.weight / torch.sqrt(
+            self.weight.data = self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -414,11 +417,17 @@ class Conv2dNorm(nn.Conv2d):
                                         self.stride,
                                         self.padding, self.dilation, self.groups).clamp_(
                 min=self.eps))  # batch*1*H_out*W_out
-            x = x / x_len
+
+            out = F.conv2d(x, self.weight, None, self.stride, self.padding, self.dilation, self.groups) / x_len
             del x_len
 
+            if self.bias is not None:
+                out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+            return out
+
         elif _norm == '3-1' or _norm == '3-2':
-            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -428,11 +437,17 @@ class Conv2dNorm(nn.Conv2d):
                                         self.stride,
                                         self.padding, self.dilation, self.groups).clamp_(
                 min=self.eps))  # batch*1*H_out*W_out
-            x = torch.abs(self.v) * x / x_len
+
+            out = torch.abs(self.v) * F.conv2d(x, self.weight, None, self.stride, self.padding, self.dilation, self.groups) / x_len
             del x_len
 
+            if self.bias is not None:
+                out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+            return out
+
         elif _norm == '5-1' or _norm == '5-2':
-            self.weight = torch.abs(self.g) * self.weight / torch.sqrt(
+            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -441,8 +456,18 @@ class Conv2dNorm(nn.Conv2d):
                                         self.stride,
                                         self.padding, self.dilation, self.groups).clamp_(
                 min=self.eps))  # batch*1*H_out*W_out
-            x = torch.abs(self.v) * x / x_len
+
+            out = torch.abs(self.v) * F.conv2d(x, self.weight, None, self.stride, self.padding, self.dilation,
+                                               self.groups) / x_len
             del x_len
+
+            if self.bias is not None:
+                out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+            return out
+
+        else:
+            raise AssertionError('_norm is not valid!')
 
         return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
