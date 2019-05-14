@@ -12,9 +12,10 @@ Con2d_Class = nn.Conv2d
 BN_Class = nn.BatchNorm2d
 _detach = None
 _norm = None
+_coeff = True
 
 
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, norm=None):
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, norm=None, coeff=True):
 
     global Linear_Class
     Linear_Class = linear
@@ -32,6 +33,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _norm
     if norm is not None:
         _norm = norm
+
+    global _coeff
+    if coeff is not None:
+        _coeff = coeff
 
 
 class Linear(nn.Linear):
@@ -145,6 +150,7 @@ class LinearPR(nn.Linear):
     def __init__(self, in_features, out_features, bias=True):
         super(LinearPR, self).__init__(in_features, out_features, bias)
 
+        self.register_buffer('one', torch.tensor(1.0))
         # self.register_buffer('a1_min', torch.tensor(0.))
         # self.register_buffer('a2_max', torch.tensor(0.))
 
@@ -163,9 +169,15 @@ class LinearPR(nn.Linear):
 
         wx_len_detach = wx_len.detach()
         del wx_len
-        a_1 = dis_.detach() / (wx_len_detach + 1e-15)
+        if _coeff:
+            a_1 = dis_.detach() / (wx_len_detach + 1e-15)
+        else:
+            a_1 = self.one
         del dis_
-        a_2 = pro.detach() / (wx_len_detach + 1e-15)
+        if _coeff:
+            a_2 = pro.detach() / (wx_len_detach + 1e-15)
+        else:
+            a_2 = torch.sign(pro)
         del wx_len_detach
 
         out = a_1 * pro + a_2 * dis
@@ -192,6 +204,7 @@ class Conv2dPR(nn.Conv2d):
 
         # self.ones_weight = torch.ones((1, 1, self.weight.size(2), self.weight.size(3))).cuda()
         self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
+        self.register_buffer('one', torch.tensor(1.0))
 
         # self.register_buffer('a1_min', torch.tensor(0.))
         # self.register_buffer('a2_max', torch.tensor(0.))
@@ -217,9 +230,15 @@ class Conv2dPR(nn.Conv2d):
 
         wx_len_detach = wx_len.detach()
         del wx_len
-        a_1 = dis_.detach() / (wx_len_detach + 1e-15)
+        if _coeff:
+            a_1 = dis_.detach() / (wx_len_detach + 1e-15)
+        else:
+            a_1 = self.one
         del dis_
-        a_2 = pro.detach() / (wx_len_detach + 1e-15)
+        if _coeff:
+            a_2 = pro.detach() / (wx_len_detach + 1e-15)
+        else:
+            a_2 = torch.sign(pro)
         del wx_len_detach
 
         out = a_1 * pro + a_2 * dis
