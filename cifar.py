@@ -217,7 +217,6 @@ def main():
                 elif custom._norm == '3-2':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
-                    print(m.g.data)
             elif isinstance(m, Conv2dNorm):
                 if custom._norm == '3-1':
                     m.g.data = torch.sqrt(
@@ -227,7 +226,6 @@ def main():
                     m.g.data = torch.sqrt(
                         m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                             min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
-                    print(m.g.data)
 
     model = torch.nn.DataParallel(model).cuda()
 
