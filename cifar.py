@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import models.cifar as models
 from models.custom import *
+import models.custom as custom
 
 from utils.misc import add_summary_value
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
@@ -206,6 +207,28 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
 
+    # initialize the g of weight normalization
+    if custom._norm is not None:
+        for m in model.modules():
+            if isinstance(m, LinearNorm):
+                if custom._norm == '3-1':
+                    m.g.data = torch.sqrt(
+                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
+                elif custom._norm == '3-2':
+                    m.g.data = torch.sqrt(
+                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
+                    print(m.g.data)
+            elif isinstance(m, Conv2dNorm):
+                if custom._norm == '3-1':
+                    m.g.data = torch.sqrt(
+                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                            min=m.eps)).unsqueeze(-1).unsqueeze(-1)
+                elif custom._norm == '3-2':
+                    m.g.data = torch.sqrt(
+                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                            min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
+                    print(m.g.data)
+
     model = torch.nn.DataParallel(model).cuda()
 
     cudnn.benchmark = True
@@ -253,10 +276,10 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
+
         lr_scheduler.step(epoch+1)
 
         test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
-
 
         # append logger file
         logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
