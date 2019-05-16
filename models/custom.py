@@ -374,6 +374,21 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(1, 1))
             self.v = nn.Parameter(torch.ones(1, 1))
 
+        if _norm == '3-1' or _norm == '3-2':
+            self.weight.register_hook(self.weight_grad)
+            self.register_buffer('ratio_min', torch.ones(1))
+            self.register_buffer('ratio_max', torch.ones(1))
+
+    def weight_grad(self, grad):
+        ratio = (torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps)) / (
+        torch.abs(self.g).clamp_(
+            min=self.eps)))**2
+
+        self.ratio_min = ratio.min()
+        self.ratio_max = ratio.max()
+
+        return grad * ratio
+
     def forward(self, x):
         if _norm == '1':
             self.weight.data = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
@@ -423,6 +438,21 @@ class Conv2dNorm(nn.Conv2d):
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
             self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
 
+        if _norm == '3-1' or _norm == '3-2':
+            self.weight.register_hook(self.weight_grad)
+            self.register_buffer('ratio_min', torch.ones(1))
+            self.register_buffer('ratio_max', torch.ones(1))
+
+    def weight_grad(self, grad):
+        ratio = (torch.sqrt(
+            self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                min=self.eps)).unsqueeze(-1).unsqueeze(-1) / (torch.abs(self.g).clamp_(
+            min=self.eps)))**2
+
+        self.ratio_min = ratio.min()
+        self.ratio_max = ratio.max()
+
+        return grad * ratio
 
     def forward(self, x):
         if _norm == '1':
