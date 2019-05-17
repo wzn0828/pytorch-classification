@@ -52,14 +52,6 @@ class Linear(nn.Linear):
 
         wx_len = torch.matmul(x_len, w_len)  # batch*num_classes
         cos_theta = (torch.matmul(x, torch.t(self.weight)) / (wx_len.clamp_(min=self.eps))).clamp_(-1.0, 1.0)    # batch*num_classes
-
-        if (wx_len == 0).sum() > 0:
-            print('min of w_len:', w_len.min().item())
-            print('mean of w_len:', w_len.mean().item())
-            print('min of x_len:', x_len.min().item())
-            print('mean of x_len:', x_len.mean().item())
-            print('\n')
-
         del wx_len
 
         if _detach is not None:
@@ -100,7 +92,6 @@ class Conv2d(nn.Conv2d):
         # self.register_buffer('a2_max', torch.tensor(0.))
 
     def forward(self, input):
-        self.weight = self.weight.contiguous()
         w_len = torch.sqrt(self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).t().clamp_(min=self.eps))  # 1*out_channels
         x_len = input.pow(2).sum(dim=1, keepdim=True)                                          # batch*1*H_in*W_in
         x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
@@ -111,16 +102,6 @@ class Conv2d(nn.Conv2d):
 
         cos_theta = (F.conv2d(input, self.weight, None, self.stride,
                        self.padding, self.dilation, self.groups) / wx_len.clamp_(min=self.eps)).clamp_(-1.0, 1.0)                                   # batch*out_channels*H_out*W_out
-
-        # if (wx_len == 0).sum() > 0:
-        if math.isnan(w_len.min().item()):
-            print(self.weight.view(self.weight.size(0), -1)[torch.isnan(w_len.squeeze())])
-            print('min of w_len:', w_len.min().item())
-            print('mean of w_len:', w_len.mean().item())
-            print('min of x_len:', x_len.min().item())
-            print('mean of x_len:', x_len.mean().item())
-            print('\n')
-
         del wx_len
 
         if _detach is not None:
@@ -374,44 +355,31 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(1, 1))
             self.v = nn.Parameter(torch.ones(1, 1))
 
-        if _norm == '3-1' or _norm == '3-2':
-            self.weight.register_hook(self.weight_grad)
-            self.register_buffer('ratio_min', torch.ones(1))
-            self.register_buffer('ratio_max', torch.ones(1))
-
-    def weight_grad(self, grad):
-        ratio = (torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps)) / (
-        torch.abs(self.g).clamp_(
-            min=self.eps)))**2
-
-        self.ratio_min = ratio.min()
-        self.ratio_max = ratio.max()
-
-        return grad * ratio
-
     def forward(self, x):
         if _norm == '1':
-            self.weight.data = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+            weight = self.weight / torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
 
         elif _norm == '2':
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight
 
         elif _norm == '3-1' or _norm == '3-2':
-            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
+            weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
 
         elif _norm == '4':
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight
 
         elif _norm == '5-1' or _norm == '5-2':
-            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
+            weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
         else:
             raise AssertionError('_norm is not valid!')
 
-        return F.linear(x, self.weight, self.bias)
+        return F.linear(x, weight, self.bias)
 
 
 
@@ -438,25 +406,9 @@ class Conv2dNorm(nn.Conv2d):
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
             self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
 
-        if _norm == '3-1' or _norm == '3-2':
-            self.weight.register_hook(self.weight_grad)
-            self.register_buffer('ratio_min', torch.ones(1))
-            self.register_buffer('ratio_max', torch.ones(1))
-
-    def weight_grad(self, grad):
-        ratio = (torch.sqrt(
-            self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
-                min=self.eps)).unsqueeze(-1).unsqueeze(-1) / (torch.abs(self.g).clamp_(
-            min=self.eps)))**2
-
-        self.ratio_min = ratio.min()
-        self.ratio_max = ratio.max()
-
-        return grad * ratio
-
     def forward(self, x):
         if _norm == '1':
-            self.weight.data = self.weight / torch.sqrt(
+            weight = self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -476,7 +428,7 @@ class Conv2dNorm(nn.Conv2d):
             return out
 
         elif _norm == '3-1' or _norm == '3-2':
-            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
+            weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -496,7 +448,7 @@ class Conv2dNorm(nn.Conv2d):
             return out
 
         elif _norm == '5-1' or _norm == '5-2':
-            self.weight.data = torch.abs(self.g) * self.weight / torch.sqrt(
+            weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
 
@@ -506,7 +458,7 @@ class Conv2dNorm(nn.Conv2d):
                                         self.padding, self.dilation, self.groups).clamp_(
                 min=self.eps))  # batch*1*H_out*W_out
 
-            out = torch.abs(self.v) * F.conv2d(x, self.weight, None, self.stride, self.padding, self.dilation,
+            out = torch.abs(self.v) * F.conv2d(x, weight, None, self.stride, self.padding, self.dilation,
                                                self.groups) / x_len
             del x_len
 
@@ -518,7 +470,7 @@ class Conv2dNorm(nn.Conv2d):
         else:
             raise AssertionError('_norm is not valid!')
 
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 

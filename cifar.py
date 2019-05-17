@@ -368,12 +368,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
 
-    if args.tensorboard_buffers_name is not None:
-        for name, buffer in model.module.named_buffers():
-            if buffer is not None:
-                for buffer_name in args.tensorboard_buffers_name:
-                    if buffer_name in name:
-                        add_summary_value(tb_summary_writer, buffer_name + '/' + name.replace('.', '/'), buffer.item(), epoch)
+    if args.tensorboard_paras is not None:
+        for name, para in model.module.named_parameters():
+            if para is not None:
+                for para_name in args.tensorboard_paras:
+                    if para_name in name:
+                        tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
 
     return (losses.avg, top1.avg)
 
