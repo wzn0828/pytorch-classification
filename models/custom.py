@@ -339,8 +339,6 @@ class Conv2dPR_Detach(nn.Conv2d):
         return out
 
 
-
-
 class LinearNorm(nn.Linear):
 
     def __init__(self, in_features, out_features, bias=True, eps=1e-8):
@@ -381,6 +379,11 @@ class LinearNorm(nn.Linear):
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
+        elif _normlinear == '6':
+            x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight / torch.sqrt(
+                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+
         elif _normlinear is None:
             weight = self.weight
 
@@ -388,8 +391,6 @@ class LinearNorm(nn.Linear):
             raise AssertionError('_norm is not valid!')
 
         return F.linear(x, weight, self.bias)
-
-
 
 
 class Conv2dNorm(nn.Conv2d):
@@ -468,6 +469,25 @@ class Conv2dNorm(nn.Conv2d):
 
             out = torch.abs(self.v) * F.conv2d(x, weight, None, self.stride, self.padding, self.dilation,
                                                self.groups) / x_len
+            del x_len
+
+            if self.bias is not None:
+                out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+            return out
+
+        elif _normconv2d == '6':
+            weight = self.weight / torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
+
+            x_len = x.pow(2).sum(dim=1, keepdim=True)  # batch*1*H_in*W_in
+            x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
+                                        self.stride,
+                                        self.padding, self.dilation, self.groups).clamp_(
+                min=self.eps))  # batch*1*H_out*W_out
+
+            out = F.conv2d(x, weight, None, self.stride, self.padding, self.dilation, self.groups) / x_len
             del x_len
 
             if self.bias is not None:
