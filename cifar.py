@@ -208,21 +208,23 @@ def main():
         model = models.__dict__[args.arch](num_classes=num_classes)
 
     # initialize the g of weight normalization
-    if custom._norm is not None:
+    if custom._normlinear is not None:
         for m in model.modules():
             if isinstance(m, LinearNorm):
-                if custom._norm == '3-1':
+                if custom._normlinear == '3-1':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
-                elif custom._norm == '3-2':
+                elif custom._normlinear == '3-2':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
-            elif isinstance(m, Conv2dNorm):
-                if custom._norm == '3-1':
+    if custom._normconv2d is not None:
+        for m in model.modules():
+            if isinstance(m, Conv2dNorm):
+                if custom._normconv2d == '3-1':
                     m.g.data = torch.sqrt(
                         m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                             min=m.eps)).unsqueeze(-1).unsqueeze(-1)
-                elif custom._norm == '3-2':
+                elif custom._normconv2d == '3-2':
                     m.g.data = torch.sqrt(
                         m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                             min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
