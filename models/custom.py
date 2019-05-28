@@ -349,7 +349,7 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(out_features, 1))
         elif _normlinear == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '4':
+        elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
             self.g = nn.Parameter(torch.ones(out_features, 1))
@@ -384,6 +384,11 @@ class LinearNorm(nn.Linear):
             weight = self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
 
+        elif _normlinear == '7':
+            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight / torch.sqrt(
+                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+
         elif _normlinear is None:
             weight = self.weight
 
@@ -406,7 +411,7 @@ class Conv2dNorm(nn.Conv2d):
             self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
         elif _normconv2d == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
-        elif _normconv2d == '4':
+        elif _normconv2d == '4' or _normconv2d == '7':
             self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
         elif _normconv2d == '5-1':
             self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
@@ -488,6 +493,25 @@ class Conv2dNorm(nn.Conv2d):
                 min=self.eps))  # batch*1*H_out*W_out
 
             out = F.conv2d(x, weight, None, self.stride, self.padding, self.dilation, self.groups) / x_len
+            del x_len
+
+            if self.bias is not None:
+                out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+            return out
+
+        elif _normconv2d == '7':
+            weight = self.weight / torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
+
+            x_len = x.pow(2).sum(dim=1, keepdim=True)  # batch*1*H_in*W_in
+            x_len = torch.sqrt(F.conv2d(x_len, self.ones_weight, None,
+                                        self.stride,
+                                        self.padding, self.dilation, self.groups).clamp_(
+                min=self.eps))  # batch*1*H_out*W_out
+
+            out = torch.abs(self.v) * F.conv2d(x, weight, None, self.stride, self.padding, self.dilation, self.groups) / x_len
             del x_len
 
             if self.bias is not None:
