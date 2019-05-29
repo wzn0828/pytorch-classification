@@ -357,6 +357,8 @@ class LinearNorm(nn.Linear):
         elif _normlinear == '5-2':
             self.g = nn.Parameter(torch.ones(1, 1))
             self.v = nn.Parameter(torch.ones(1, 1))
+        elif _normlinear == '8':
+            self.g = nn.Parameter(torch.ones(1, 1))
 
     def forward(self, x):
         if _normlinear == '1':
@@ -389,6 +391,11 @@ class LinearNorm(nn.Linear):
             weight = self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
 
+        elif _normlinear == '8':
+            weight_lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))
+            weight = weight_lens.mean(dim=0, keepdim=True) * self.weight / weight_lens
+            self.g.data = weight_lens.mean(dim=0, keepdim=True)
+
         elif _normlinear is None:
             weight = self.weight
 
@@ -419,6 +426,8 @@ class Conv2dNorm(nn.Conv2d):
         elif _normconv2d == '5-2':
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
             self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
+        elif _normconv2d == '8':
+            self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
 
     def forward(self, x):
         if _normconv2d == '1':
@@ -518,6 +527,13 @@ class Conv2dNorm(nn.Conv2d):
                 out = out + self.bias.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
 
             return out
+
+        elif _normconv2d == '8':
+            weight_lens = torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)
+            weight = weight_lens.mean(dim=0, keepdim=True) * self.weight / weight_lens
+            self.g.data = weight_lens.mean(dim=0, keepdim=True)
 
         elif _normconv2d is None:
             weight = self.weight
