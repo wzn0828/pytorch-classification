@@ -345,7 +345,7 @@ class LinearNorm(nn.Linear):
         super(LinearNorm, self).__init__(in_features, out_features, bias)
         # self.register_buffer('eps', torch.tensor(eps))
         self.eps = eps
-        if _normlinear == '3-1':
+        if _normlinear == '3-1' or _normlinear is None:
             self.g = nn.Parameter(torch.ones(out_features, 1))
         elif _normlinear == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1))
@@ -398,6 +398,7 @@ class LinearNorm(nn.Linear):
 
         elif _normlinear is None:
             weight = self.weight
+            self.g.data = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))
 
         else:
             raise AssertionError('_norm is not valid!')
@@ -414,7 +415,7 @@ class Conv2dNorm(nn.Conv2d):
 
         self.eps = eps
         self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
-        if _normconv2d == '3-1':
+        if _normconv2d == '3-1' or _normconv2d is None:
             self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
         elif _normconv2d == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
@@ -537,6 +538,9 @@ class Conv2dNorm(nn.Conv2d):
 
         elif _normconv2d is None:
             weight = self.weight
+            self.g.data = torch.sqrt(
+                self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)
 
         else:
             raise AssertionError('_norm is not valid!')
