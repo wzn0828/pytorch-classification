@@ -23,8 +23,8 @@ import models.imagenet as customized_models
 from models.custom import *
 
 from utils.misc import add_summary_value
-from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
-from libs import InPlaceABNSync as libs_IABNS
+from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
+# from libs import InPlaceABNSync as libs_IABNS
 
 try:
     import tensorboardX as tb
@@ -103,19 +103,22 @@ args = parser.parse_args()
 
 # ------local config------ #
 args.data = '/media/HDD_4TB/wzn/Datasets/ILSVRC'
-args.workers = 4
-args.epochs = 10
+args.workers = 8
+args.epochs = 90
 args.start_epoch = 0
-args.train_batch = 60
-args.test_batch = 200
-args.lr = 0.0001
+args.train_batch = 256
+args.test_batch = 1024
+args.lr = 0.1
+args.schedule = [30, 60]
+args.arch = 'resnet50'
+set_gl_variable(LinearNorm, Conv2dNorm, normlinear='1', normconv2d='8')
 
-args.arch = 'resnet101'
-args.checkpoint = 'Experiments/Imagenet_resnet101_PR_train_lr-1e-4'
-set_gl_variable(LinearProDis, Conv2dProDis, bn=libs_IABNS)
+args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet50_l1-c8'
 
-args.evaluate = True
-args.pretrained = True
+args.evaluate = False
+args.pretrained = False
+
+args.tensorboard_paras = ['.g', '.v']
 
 args.manualSeed = 123
 args.print_freq = 10
@@ -208,7 +211,7 @@ def main():
         # Load checkpoint.
         print('==> Resuming from checkpoint..')
         assert os.path.isfile(args.resume), 'Error: no checkpoint directory found!'
-        args.checkpoint = os.path.dirname(args.resume)
+        # args.checkpoint = os.path.dirname(args.resume)
         checkpoint = torch.load(args.resume)
         best_acc = checkpoint['best_acc']
         start_epoch = checkpoint['epoch']
@@ -272,7 +275,7 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
     top5 = AverageMeter()
     end = time.time()
 
-    bar = Bar('Processing', max=len(train_loader))
+    # bar = Bar('Processing', max=len(train_loader))
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -310,24 +313,31 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
                       epoch, batch_idx, len(train_loader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
 
-        # plot progress
-        bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                    batch=batch_idx + 1,
-                    size=len(train_loader),
-                    data=data_time.val,
-                    bt=batch_time.val,
-                    total=bar.elapsed_td,
-                    eta=bar.eta_td,
-                    loss=losses.avg,
-                    top1=top1.avg,
-                    top5=top5.avg,
-                    )
-        bar.next()
-    bar.finish()
+        # # plot progress
+        # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
+        #             batch=batch_idx + 1,
+        #             size=len(train_loader),
+        #             data=data_time.val,
+        #             bt=batch_time.val,
+        #             total=bar.elapsed_td,
+        #             eta=bar.eta_td,
+        #             loss=losses.avg,
+        #             top1=top1.avg,
+        #             top5=top5.avg,
+        #             )
+    #     bar.next()
+    # bar.finish()
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
+
+    # if args.tensorboard_paras is not None:
+    #     for name, para in model.module.named_parameters():
+    #         if para is not None:
+    #             for para_name in args.tensorboard_paras:
+    #                 if para_name in name:
+    #                     tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
 
     return (losses.avg, top1.avg)
 
@@ -345,7 +355,7 @@ def test(val_loader, model, criterion, epoch, use_cuda):
 
     with torch.no_grad():
         end = time.time()
-        bar = Bar('Processing', max=len(val_loader))
+        # bar = Bar('Processing', max=len(val_loader))
         for batch_idx, (inputs, targets) in enumerate(val_loader):
             # measure data loading time
             data_time.update(time.time() - end)
@@ -368,18 +378,18 @@ def test(val_loader, model, criterion, epoch, use_cuda):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            # plot progress
-            bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-                        batch=batch_idx + 1,
-                        size=len(val_loader),
-                        data=data_time.avg,
-                        bt=batch_time.avg,
-                        total=bar.elapsed_td,
-                        eta=bar.eta_td,
-                        loss=losses.avg,
-                        top1=top1.avg,
-                        top5=top5.avg,
-                        )
+            # # plot progress
+            # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
+            #             batch=batch_idx + 1,
+            #             size=len(val_loader),
+            #             data=data_time.avg,
+            #             bt=batch_time.avg,
+            #             total=bar.elapsed_td,
+            #             eta=bar.eta_td,
+            #             loss=losses.avg,
+            #             top1=top1.avg,
+            #             top5=top5.avg,
+            #             )
 
             if batch_idx % args.print_freq == 0:
                 print('Test: [{0}/{1}]\t'
@@ -390,8 +400,8 @@ def test(val_loader, model, criterion, epoch, use_cuda):
                     batch_idx, len(val_loader), batch_time=batch_time, loss=losses,
                     top1=top1, top5=top5))
 
-            bar.next()
-        bar.finish()
+        #     bar.next()
+        # bar.finish()
 
     print(' * Prec@1 {top1.avg:.3f}\t'
           ' * Prec@5 {top5.avg:.3f}'
@@ -401,6 +411,13 @@ def test(val_loader, model, criterion, epoch, use_cuda):
         add_summary_value(tb_summary_writer, 'Loss/test', losses.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
+
+        if args.tensorboard_paras is not None:
+            for name, para in model.module.named_parameters():
+                if para is not None:
+                    for para_name in args.tensorboard_paras:
+                        if para_name in name:
+                            tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
 
     return (losses.avg, top1.avg)
 
