@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
-from torch.nn.parameter import Parameter
 import torch.nn.functional as F
-from torch.nn import init
-from torch.nn.modules.conv import Conv2d
-from torch.nn.modules.linear import Linear
-import math
+
 
 Linear_Class = nn.Linear
 Con2d_Class = nn.Conv2d
@@ -14,7 +10,6 @@ _detach = None
 _normlinear = None
 _normconv2d = None
 _coeff = True
-
 
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None, coeff=True):
 
