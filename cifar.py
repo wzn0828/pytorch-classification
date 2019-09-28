@@ -376,6 +376,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                 for para_name in args.tensorboard_paras:
                     if para_name in name:
                         tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
+                        if para.grad is not None:
+                            tb_summary_writer.add_histogram('Grads/' + name.replace('.', '/'), para.grad, epoch)
+
 
     return (losses.avg, top1.avg)
 
