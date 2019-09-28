@@ -379,7 +379,13 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                         add_summary_value(tb_summary_writer, 'Scalars/' + name.replace('.', '/'), para.mean(), epoch)
                         if para.grad is not None:
                             tb_summary_writer.add_histogram('Grads/' + name.replace('.', '/'), para.grad, epoch)
-
+                        # last several epochs, tensorboard clearly
+                        if epoch > args.epochs-10:
+                            tb_summary_writer.add_histogram('Weights_10/' + name.replace('.', '/'), para, epoch)
+                            add_summary_value(tb_summary_writer, 'Scalars_10/' + name.replace('.', '/'), para.mean(),
+                                              epoch)
+                            if para.grad is not None:
+                                tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
 
     return (losses.avg, top1.avg)
 
