@@ -344,6 +344,9 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(out_features, 1))
         elif _normlinear == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1))
+        elif _normlinear == '3-3':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.g.register_hook(lambda grad: grad/out_features)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
@@ -363,7 +366,7 @@ class LinearNorm(nn.Linear):
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight
 
-        elif _normlinear == '3-1' or _normlinear == '3-2':
+        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3':
             weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
 
@@ -414,6 +417,9 @@ class Conv2dNorm(nn.Conv2d):
             self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
         elif _normconv2d == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
+        elif _normconv2d == '3-3':
+            self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
+            self.g.register_hook(lambda grad: grad/out_channels)
         elif _normconv2d == '4' or _normconv2d == '7':
             self.v = nn.Parameter(torch.ones(1, 1, 1, 1))
         elif _normconv2d == '5-1':
@@ -446,7 +452,7 @@ class Conv2dNorm(nn.Conv2d):
 
             return out
 
-        elif _normconv2d == '3-1' or _normconv2d == '3-2':
+        elif _normconv2d == '3-1' or _normconv2d == '3-2' or _normconv2d == '3-3':
             weight = torch.abs(self.g) * self.weight / torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
                     min=self.eps)).unsqueeze(-1).unsqueeze(-1)  # out*in*H*W
