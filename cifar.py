@@ -129,13 +129,16 @@ os.environ['MASTER_PORT'] = '9006'
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
 use_cuda = torch.cuda.is_available()
 
-# Random seed
+# Random seed, for deterministic behavior
+cudnn.benchmark = False
+cudnn.deterministic = True
 if args.manualSeed is None:
     args.manualSeed = random.randint(1, 10000)
 random.seed(args.manualSeed)
 torch.manual_seed(args.manualSeed)
 if use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
+# still need to set the work_init_fn to random.seed in train_dataloader, if multi numworkers
 
 best_acc = 0  # best test accuracy
 
@@ -168,7 +171,7 @@ def main():
 
 
     trainset = dataloader(root=args.data_path, train=True, download=True, transform=transform_train)
-    trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers)
+    trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=True, num_workers=args.workers, worker_init_fn=random.seed)
 
     testset = dataloader(root=args.data_path, train=False, download=False, transform=transform_test)
     testloader = data.DataLoader(testset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
@@ -231,7 +234,6 @@ def main():
 
     model = torch.nn.DataParallel(model).cuda()
 
-    cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
