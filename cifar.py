@@ -210,6 +210,10 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=num_classes)
 
+    # initialize the weights to have identical lengths
+    if args.init_ave_length:
+        ave_length(model)
+
     # initialize the g of weight normalization
     if custom._normlinear is not None:
         for m in model.modules():
@@ -303,6 +307,19 @@ def main():
 
     print('Best acc:')
     print(best_acc)
+
+
+def ave_length(model):
+    for m in model.modules():
+        if isinstance(m, LinearNorm) or isinstance(m, Conv2dNorm):
+            lens = torch.sqrt(
+                m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp(
+                    min=m.eps))
+            if isinstance(m, Conv2dNorm):
+                lens = lens.unsqueeze(-1).unsqueeze(-1)
+
+            m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
+
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
