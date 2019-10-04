@@ -330,6 +330,39 @@ def ave_fc_length(model):
             m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
 
 
+def ave_fc_g(model):
+    for m in model.modules():
+        if isinstance(m, LinearNorm):
+            m.g.data = m.g.mean(dim=0, keepdim=True) * m.g / m.g
+
+
+def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
+    '''
+    :param outputs: # batch*num_classes
+    :param features: # batch*infeatures(512 in CnX)
+    :param model: model.module.fc.weight  # num_classes*infeatures(512 in CnX)
+    :return:
+    '''
+
+    weight_len = model.module.fc.weight.norm(dim=1)  # num_classes
+
+    retures = []
+    for i in sample:
+        if i < outputs.size(0):
+            output = outputs[i]        # num_classes
+            feature_len = features[i].norm()  # a scalar
+            cosine = output / weight_len / feature_len # num_classes
+            retures.append((output, cosine))
+
+    return retures              # num_classes
+
+def compute_weight_cosine(model):
+    weight = model.module.fc.weight
+    weight = weight/weight.norm(dim=1, keepdim=True)
+
+    return torch.matmul(weight, weight.t())
+
+
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
     model.train()
@@ -353,6 +386,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         # average lengths
         if args.average_fc_length:
             ave_fc_length(model)
+
+        if args.average_fc_g:
+            ave_fc_g(model)
 
         # compute output
         outputs, features = model(inputs)
@@ -402,8 +438,14 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Outputs[0][0]', outputs[0][0], epoch)
-    add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.fc.bias[0], epoch)
-    add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.fc.bias[0], epoch)
+    # add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.fc.bias[0], epoch)
+    # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.fc.bias[0], epoch)
+
+    # compute the cosine of classify layer
+    output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
+    for i, output_cosine in enumerate(output_cosines):
+        tb_summary_writer.add_histogram('Output/' + 'batch_' + str(i), output_cosine[0], epoch)
+        tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
 
     if args.tensorboard_paras is not None:
         for name, para in model.module.named_parameters():
@@ -421,6 +463,15 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                                               epoch)
                             if para.grad is not None:
                                 tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
+                            for i, output_cosine in enumerate(output_cosines):
+                                tb_summary_writer.add_histogram('Output_10/' + 'batch_' + str(i), output_cosine[0], epoch)
+                                tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1], epoch)
+
+    if epoch == args.epochs:
+        cosine_similarity = compute_weight_cosine(model)
+        torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
+        print (cosine_similarity)
+
 
     return (losses.avg, top1.avg)
 
