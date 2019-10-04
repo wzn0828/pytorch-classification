@@ -456,6 +456,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
             if para is not None:
                 for para_name in args.tensorboard_paras:
                     if para_name in name:
+                        if para_name == '.g':
+                            para = torch.abs(para)
                         tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
                         add_summary_value(tb_summary_writer, 'Scalars/' + name.replace('.', '/'), para.mean(), epoch)
                         if para.grad is not None:
