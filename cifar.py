@@ -320,6 +320,15 @@ def ave_length(model):
 
             m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
 
+def ave_fc_length(model):
+    for m in model.modules():
+        if isinstance(m, LinearNorm):
+            lens = torch.sqrt(
+                m.weight.pow(2).sum(dim=1, keepdim=True).clamp(
+                    min=m.eps))
+
+            m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
+
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
@@ -340,6 +349,10 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda(async=True)
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
+
+        # average lengths
+        if args.average_fc_length:
+            ave_fc_length(model)
 
         # compute output
         outputs = model(inputs)
@@ -388,6 +401,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Outputs[0][0]', outputs[0][0], epoch)
+    add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.fc.bias[0], epoch)
+    add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.fc.bias[0], epoch)
 
     if args.tensorboard_paras is not None:
         for name, para in model.module.named_parameters():
