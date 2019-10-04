@@ -58,10 +58,10 @@ class CnX(nn.Module):
         x = self.layer3(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        feature = x.view(x.size(0), -1)
+        x = self.fc(feature)
 
-        return x
+        return x, feature
 
 
 def cnx(**kwargs):
