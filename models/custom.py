@@ -346,6 +346,9 @@ class LinearNorm(nn.Linear):
 
         if _normlinear == '3-1' or _normlinear is None:
             self.g = nn.Parameter(torch.ones(out_features, 1))
+        if _normlinear == '3-5':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
+            self.weight.register_hook(lambda grad: self.lens/self.g*grad)
         elif _normlinear == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '3-3':
@@ -377,7 +380,7 @@ class LinearNorm(nn.Linear):
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight
 
-        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4':
+        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5':
             weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
 
         elif _normlinear == '4':
@@ -425,6 +428,9 @@ class Conv2dNorm(nn.Conv2d):
         self.register_buffer('ones_weight', torch.ones((1, 1, self.weight.size(2), self.weight.size(3))))
         if _normconv2d == '3-1' or _normconv2d is None:
             self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
+        if _normconv2d == '3-5':
+            self.g = nn.Parameter(torch.ones(out_channels, 1, 1, 1))
+            self.weight.register_hook(lambda grad: self.lens/self.g*grad)
         elif _normconv2d == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1, 1, 1))
         elif _normconv2d == '3-3':
@@ -448,7 +454,7 @@ class Conv2dNorm(nn.Conv2d):
 
         lens = torch.sqrt(
                 self.weight.view(self.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp(
-                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)       # out*in*1*1
+                    min=self.eps)).unsqueeze(-1).unsqueeze(-1)       # out*1*1*1
         self.lens.data = lens.data
 
         if _normconv2d == '1':
@@ -469,7 +475,7 @@ class Conv2dNorm(nn.Conv2d):
 
             return out
 
-        elif _normconv2d == '3-1' or _normconv2d == '3-2' or _normconv2d == '3-3' or _normconv2d == '3-4':
+        elif _normconv2d == '3-1' or _normconv2d == '3-2' or _normconv2d == '3-3' or _normconv2d == '3-4' or _normconv2d == '3-5':
             weight = torch.abs(self.g) * self.weight / lens  # out*in*H*W
 
         elif _normconv2d == '4':
