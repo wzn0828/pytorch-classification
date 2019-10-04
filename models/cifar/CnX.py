@@ -39,7 +39,7 @@ class CnX(nn.Module):
         self.layer3 = Layer(32, 32, batch_norm=batch_norm)
 
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = custom.Linear_Class(512, num_classes, bias=bias)
+        self.classifier = custom.Linear_Class(512, num_classes, bias=bias)
 
         for m in self.modules():
             if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
@@ -59,7 +59,7 @@ class CnX(nn.Module):
 
         x = self.avgpool(x)
         feature = x.view(x.size(0), -1)
-        x = self.fc(feature)
+        x = self.classifier(feature)
 
         return x, feature
 

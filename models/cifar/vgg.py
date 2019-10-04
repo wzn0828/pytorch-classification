@@ -32,9 +32,10 @@ class VGG(nn.Module):
 
     def forward(self, x):
         x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
+        feature = x.view(x.size(0), -1)
+        x = self.classifier(feature)
+
+        return x, feature
 
     def _initialize_weights(self):
         for m in self.modules():

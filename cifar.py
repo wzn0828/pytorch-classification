@@ -10,6 +10,10 @@ import shutil
 import time
 import random
 
+import torch
+import sys
+torch.set_printoptions(threshold=sys.maxsize)
+
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data as data
@@ -340,11 +344,11 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     '''
     :param outputs: # batch*num_classes
     :param features: # batch*infeatures(512 in CnX)
-    :param model: model.module.fc.weight  # num_classes*infeatures(512 in CnX)
+    :param model: model.module.classifier.weight  # num_classes*infeatures(512 in CnX)
     :return:
     '''
 
-    weight_len = model.module.fc.weight.norm(dim=1)  # num_classes
+    weight_len = model.module.classifier.weight.norm(dim=1)  # num_classes
 
     retures = []
     for i in sample:
@@ -357,10 +361,10 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     return retures              # num_classes
 
 def compute_weight_cosine(model):
-    weight = model.module.fc.weight
+    weight = model.module.classifier.weight
     weight = weight/weight.norm(dim=1, keepdim=True)
 
-    return torch.matmul(weight, weight.t())
+    return torch.matmul(weight, weight.t()).data.cpu()
 
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
@@ -438,8 +442,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Outputs[0][0]', outputs[0][0], epoch)
-    # add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.fc.bias[0], epoch)
-    # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.fc.bias[0], epoch)
+    # add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
+    # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.classifier.bias[0], epoch)
 
     # compute the cosine of classify layer
     output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
@@ -471,7 +475,6 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         cosine_similarity = compute_weight_cosine(model)
         torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
         print (cosine_similarity)
-
 
     return (losses.avg, top1.avg)
 
