@@ -116,7 +116,7 @@ class PreResNet(nn.Module):
         self.bn = nn.BatchNorm2d(64 * block.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = custom.Linear_Class(64 * block.expansion, num_classes)
+        self.classifier = custom.Linear_Class(64 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, custom.Linear_Class) or isinstance(m, custom.Con2d_Class):
@@ -154,10 +154,10 @@ class PreResNet(nn.Module):
         x = self.relu(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        feature = x.view(x.size(0), -1)
+        x = self.classifier(feature)
 
-        return x
+        return x, feature
 
 
 def preresnet(**kwargs):
