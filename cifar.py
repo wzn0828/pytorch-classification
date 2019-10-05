@@ -348,14 +348,15 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     :return:
     '''
 
-    weight_len = model.module.classifier.weight.norm(dim=1)  # num_classes
+    weight_len = torch.abs(model.module.classifier.g).squeeze(dim=1)
+    bias = model.module.classifier.bias
 
     retures = []
     for i in sample:
         if i < outputs.size(0):
-            output = outputs[i]        # num_classes
+            output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
             feature_len = features[i].norm()  # a scalar
-            cosine = output / weight_len / feature_len # num_classes
+            cosine = output / weight_len.clamp(min=1e-5) / feature_len.clamp(min=1e-5) # num_classes
             retures.append((output, cosine))
 
     return retures              # num_classes
