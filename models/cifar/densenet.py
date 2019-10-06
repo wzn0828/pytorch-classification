@@ -101,7 +101,7 @@ class DenseNet(nn.Module):
         self.bn = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = custom.Linear_Class(self.inplanes, num_classes)
+        self.classifier = custom.Linear_Class(self.inplanes, num_classes)
 
         # Weight initialization
         for m in self.modules():
@@ -140,10 +140,10 @@ class DenseNet(nn.Module):
         x = self.relu(x)
 
         x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        feature = x.view(x.size(0), -1)
+        x = self.classifier(feature)
 
-        return x
+        return x, feature
 
 
 def densenet(**kwargs):
