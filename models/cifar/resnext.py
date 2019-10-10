@@ -118,8 +118,8 @@ class CifarResNeXt(nn.Module):
         x = self.stage_2.forward(x)
         x = self.stage_3.forward(x)
         x = F.avg_pool2d(x, 8, 1)
-        x = x.view(-1, 1024)
-        return self.classifier(x)
+        feature = x.view(-1, 1024)
+        return self.classifier(feature), feature
 
 def resnext(**kwargs):
     """Constructs a ResNeXt.
