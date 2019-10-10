@@ -21,6 +21,7 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import models.imagenet as customized_models
 from models.custom import *
+import models.custom as custom
 
 from utils.misc import add_summary_value
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
@@ -136,13 +137,16 @@ tb_summary_writer = tb and tb.SummaryWriter(args.checkpoint)
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
 use_cuda = torch.cuda.is_available()
 
-# Random seed
+# Random seed, for deterministic behavior
+cudnn.benchmark = False
+cudnn.deterministic = True
 if args.manualSeed is None:
     args.manualSeed = random.randint(1, 10000)
 random.seed(args.manualSeed)
 torch.manual_seed(args.manualSeed)
 if use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
+# still need to set the work_init_fn to random.seed in train_dataloader, if multi numworkers
 
 best_acc = 0  # best test accuracy
 
@@ -167,7 +171,7 @@ def main():
             normalize,
         ])),
         batch_size=args.train_batch, shuffle=True,
-        num_workers=args.workers, pin_memory=True)
+        num_workers=args.workers, pin_memory=True, worker_init_fn=random.seed)
 
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
@@ -192,13 +196,34 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
+    # initialize the g of weight normalization
+    if custom._normlinear is not None:
+        for m in model.modules():
+            if isinstance(m, LinearNorm):
+                if custom._normlinear == '3-1' or custom._normlinear == '3-5':
+                    m.g.data = torch.sqrt(
+                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
+                elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4':
+                    m.g.data = torch.sqrt(
+                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
+    if custom._normconv2d is not None:
+        for m in model.modules():
+            if isinstance(m, Conv2dNorm):
+                if custom._normconv2d == '3-1' or custom._normconv2d == '3-5':
+                    m.g.data = torch.sqrt(
+                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                            min=m.eps)).unsqueeze(-1).unsqueeze(-1)
+                elif custom._normconv2d == '3-2' or custom._normconv2d == '3-3' or custom._normconv2d == '3-4':
+                    m.g.data = torch.sqrt(
+                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
+                            min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
+
     if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
         model.features = torch.nn.DataParallel(model.features)
         model.cuda()
     else:
         model = torch.nn.DataParallel(model).cuda()
 
-    cudnn.benchmark = True
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
 
     # define loss function (criterion) and optimizer
@@ -264,6 +289,35 @@ def main():
     print('Best acc:')
     print(best_acc)
 
+
+def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
+    '''
+    :param outputs: # batch*num_classes
+    :param features: # batch*infeatures(512 in CnX)
+    :param model: model.module.classifier.weight  # num_classes*infeatures(512 in CnX)
+    :return:
+    '''
+
+    weight_len = torch.abs(model.module.classifier.g).squeeze(dim=1)
+    bias = model.module.classifier.bias
+
+    retures = []
+    for i in sample:
+        if i < outputs.size(0):
+            output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
+            feature_len = features[i].norm()  # a scalar
+            cosine = output / weight_len.clamp(min=1e-5) / feature_len.clamp(min=1e-5) # num_classes
+            retures.append((output, cosine))
+
+    return retures              # num_classes
+
+def compute_weight_cosine(model):
+    weight = model.module.classifier.weight
+    weight = weight/weight.norm(dim=1, keepdim=True)
+
+    return torch.matmul(weight, weight.t()).data.cpu()
+
+
 def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
     model.train()
@@ -285,7 +339,7 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
-        outputs = model(inputs)
+        outputs, features = model(inputs)
         loss = criterion(outputs, targets)
 
         # measure accuracy and record loss
@@ -332,12 +386,40 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
 
-    # if args.tensorboard_paras is not None:
-    #     for name, para in model.module.named_parameters():
-    #         if para is not None:
-    #             for para_name in args.tensorboard_paras:
-    #                 if para_name in name:
-    #                     tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
+    # compute the cosine of classify layer
+    output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
+    for i, output_cosine in enumerate(output_cosines):
+        tb_summary_writer.add_histogram('Output/' + 'batch_' + str(i), output_cosine[0], epoch)
+        tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
+
+    if args.tensorboard_paras is not None:
+        for name, para in model.module.named_parameters():
+            if para is not None:
+                for para_name in args.tensorboard_paras:
+                    if para_name in name:
+                        if para_name == '.g':
+                            para.data = torch.abs(para.data)
+                        tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
+                        add_summary_value(tb_summary_writer, 'Scalars/' + name.replace('.', '/'), para.mean(), epoch)
+                        if para.grad is not None:
+                            tb_summary_writer.add_histogram('Grads/' + name.replace('.', '/'), para.grad, epoch)
+                        # last several epochs, tensorboard clearly
+                        if epoch > args.epochs - 10:
+                            tb_summary_writer.add_histogram('Weights_10/' + name.replace('.', '/'), para, epoch)
+                            add_summary_value(tb_summary_writer, 'Scalars_10/' + name.replace('.', '/'), para.mean(),
+                                              epoch)
+                            if para.grad is not None:
+                                tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
+                            for i, output_cosine in enumerate(output_cosines):
+                                tb_summary_writer.add_histogram('Output_10/' + 'batch_' + str(i), output_cosine[0],
+                                                                epoch)
+                                tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1],
+                                                                epoch)
+
+    if epoch == args.epochs:
+        cosine_similarity = compute_weight_cosine(model)
+        torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
+        print(cosine_similarity)
 
     return (losses.avg, top1.avg)
 
@@ -365,7 +447,7 @@ def test(val_loader, model, criterion, epoch, use_cuda):
             inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs = model(inputs)
+            outputs, features = model(inputs)
             loss = criterion(outputs, targets)
 
             # measure accuracy and record loss
