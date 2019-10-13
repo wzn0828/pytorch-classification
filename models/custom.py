@@ -131,10 +131,7 @@ class LinearPR(nn.Linear):
 
     def __init__(self, in_features, out_features, bias=True):
         super(LinearPR, self).__init__(in_features, out_features, bias)
-
         self.register_buffer('one', torch.tensor(1.0))
-        # self.register_buffer('a1_min', torch.tensor(0.))
-        # self.register_buffer('a2_max', torch.tensor(0.))
 
     def forward(self, x):
         w_len_pow2 = torch.t(self.weight.pow(2).sum(dim=1, keepdim=True))  # 1*num_classes
@@ -165,9 +162,6 @@ class LinearPR(nn.Linear):
         out = a_1 * pro + a_2 * dis
 
         del dis, pro
-
-        # self.a1_min = a_1.min(dim=1)[0].mean()
-        # self.a2_max = torch.abs(a_2).max(dim=1)[0].mean()
 
         del a_1, a_2
 
@@ -226,10 +220,6 @@ class Conv2dPR(nn.Conv2d):
         out = a_1 * pro + a_2 * dis
 
         del dis, pro
-
-        # self.a1_min = a_1.view(a_1.size(0), -1).min(dim=1)[0].mean()
-        # self.a2_max = torch.abs(a_2).view(a_2.size(0), -1).max(dim=1)[0].mean()
-
         del a_1, a_2
 
         if self.bias is not None:
@@ -566,6 +556,17 @@ class Conv2dNorm(nn.Conv2d):
 
         return F.conv2d(x, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
+
+
+def LengthNormalization(weight, eps=1e-8):
+    # r"weight:with shape [out_features, in_features] for fully connected layer,
+    #  or [out_channels, in_channels, H, W] for convolutional layer
+    weight_lens = weight.view(weight.size(0), -1).norm(dim=1, keepdim=True).clamp_(min=eps)
+
+    if weight.dim() > 2:    # for convolutional layer
+        weight_lens = weight_lens.unsqueeze(-1).unsqueeze(-1)
+
+    return weight_lens.mean(dim=0, keepdim=True) * weight / weight_lens
 
 
 
