@@ -347,6 +347,10 @@ class LinearNorm(nn.Linear):
         elif _normlinear == '3-4':
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad/math.sqrt(out_features))
+        elif _normlinear == '3-6':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.g.register_hook(lambda grad: grad / math.sqrt(out_features))
+            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
@@ -370,7 +374,7 @@ class LinearNorm(nn.Linear):
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight
 
-        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5':
+        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' or _normlinear == '3-6':
             weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
 
         elif _normlinear == '4':
