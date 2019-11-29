@@ -351,6 +351,8 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad / math.sqrt(out_features))
             self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
+        elif _normlinear == '3-7':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
@@ -376,6 +378,17 @@ class LinearNorm(nn.Linear):
 
         elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' or _normlinear == '3-6':
             weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
+
+        elif _normlinear == '3-7':
+            gi = torch.abs(self.g)
+            a = x.matmul(torch.t(self.weight / lens))
+
+            out = linear_norm37(gi, a, x)
+
+            if self.bias is not None:
+                out = out + self.bias
+
+            return out
 
         elif _normlinear == '4':
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
@@ -574,6 +587,40 @@ def LengthNormalization(weight, eps=1e-8):
 
 
 
+class Linear_Norm37(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, gi, a, x):
+        '''
+        :param ctx:
+        :param gi: out_features x 1
+        :param a: batch x out_features
+        :param x: batch x in_features
+        :return:
+        '''
+        ctx.save_for_backward(gi, a, x)
+
+        return a * gi.t()     # batch x out_features
+
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        '''
+        :param ctx:
+        :param grad_output: batch x out_features
+        :return:
+        '''
+        gi, a, x = ctx.saved_tensors
+
+        x_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=1e-8))  # batch*1
+        d_gi = (grad_output * torch.sign(a) * x_len).sum(dim=0, keepdim=True).t()   # out_features x 1
+
+        d_a = grad_output * gi.t()
+
+        return d_gi, d_a, None
+
+linear_norm37 = Linear_Norm37.apply
+
+
 # # test code
 # torch.manual_seed(123)
 # ori_linear = nn.Linear(512, 1024)
@@ -598,6 +645,4 @@ def LengthNormalization(weight, eps=1e-8):
 # print(conv_diff.min(), conv_diff.max())
 # print(ori_conv_out.min(), ori_conv_out.max())
 # print(cus_conv_out.min(), cus_conv_out.max())
-
-
 
