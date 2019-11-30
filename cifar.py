@@ -168,10 +168,10 @@ def main():
     ])
     if args.dataset == 'cifar10':
         dataloader = datasets.CIFAR10
-        num_classes = 10
+        args.num_classes = 10
     else:
         dataloader = datasets.CIFAR100
-        num_classes = 100
+        args.num_classes = 100
 
 
     trainset = dataloader(root=args.data_path, train=True, download=True, transform=transform_train)
@@ -185,14 +185,14 @@ def main():
     if args.arch.startswith('resnext'):
         model = models.__dict__[args.arch](
                     cardinality=args.cardinality,
-                    num_classes=num_classes,
+                    num_classes=args.num_classes,
                     depth=args.depth,
                     widen_factor=args.widen_factor,
                     dropRate=args.drop,
                 )
     elif args.arch.startswith('densenet'):
         model = models.__dict__[args.arch](
-                    num_classes=num_classes,
+                    num_classes=args.num_classes,
                     depth=args.depth,
                     growthRate=args.growthRate,
                     compressionRate=args.compressionRate,
@@ -200,19 +200,19 @@ def main():
                 )
     elif args.arch.startswith('wrn'):
         model = models.__dict__[args.arch](
-                    num_classes=num_classes,
+                    num_classes=args.num_classes,
                     depth=args.depth,
                     widen_factor=args.widen_factor,
                     dropRate=args.drop,
                 )
     elif args.arch.endswith('resnet'):
         model = models.__dict__[args.arch](
-                    num_classes=num_classes,
+                    num_classes=args.num_classes,
                     depth=args.depth,
                     block_name=args.block_name,
                 )
     else:
-        model = models.__dict__[args.arch](num_classes=num_classes)
+        model = models.__dict__[args.arch](num_classes=args.num_classes)
 
     # initialize the weights to have identical lengths
     if args.init_ave_length:
@@ -355,8 +355,13 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     for i in sample:
         if i < outputs.size(0):
             output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
-            feature_len = features[i].norm()  # a scalar
-            cosine = output / weight_len.clamp(min=1e-5) / feature_len.clamp(min=1e-5) # num_classes
+
+            if custom._normlinear=='9':
+                feature_len = model.module.classifier.v
+            else:
+                feature_len = features[i].norm().clamp(min=1e-5)  # a scalar
+
+            cosine = output / weight_len.clamp(min=1e-5) / feature_len  # num_classes
             retures.append((output, cosine))
 
     return retures              # num_classes
@@ -442,15 +447,26 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
-    add_summary_value(tb_summary_writer, 'Outputs[0][0]', outputs[0][0], epoch)
-    # add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
+    add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
+    add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
+    tb_summary_writer.add_histogram('fc_bias', model.module.classifier.bias, epoch)
     # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.classifier.bias[0], epoch)
 
     # compute the cosine of classify layer
     output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
     for i, output_cosine in enumerate(output_cosines):
-        tb_summary_writer.add_histogram('Output/' + 'batch_' + str(i), output_cosine[0], epoch)
+        tb_summary_writer.add_histogram('Logits-bias/' + 'batch_' + str(i), output_cosine[0], epoch)
         tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
+
+    # the length of features
+    feature_norms = features.norm(p=2, dim=1).cpu()
+    tb_summary_writer.add_histogram('Feature_Length/train', feature_norms, epoch)
+    add_summary_value(tb_summary_writer, 'Feature_Length/train', feature_norms.mean(), epoch)
+
+    # the cosine similarity between weights
+    cosine_similarity = compute_weight_cosine(model).tril(diagonal=-1)
+    mean_cosine_similarity = cosine_similarity.sum()/((args.num_classes*(args.num_classes-1.0))/2.0)
+    add_summary_value(tb_summary_writer, 'Fc_Weights_CosineSimilarMean', mean_cosine_similarity, epoch)
 
     if args.tensorboard_paras is not None:
         for name, para in model.module.named_parameters():
@@ -471,11 +487,11 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                             if para.grad is not None:
                                 tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
                             for i, output_cosine in enumerate(output_cosines):
-                                tb_summary_writer.add_histogram('Output_10/' + 'batch_' + str(i), output_cosine[0], epoch)
+                                tb_summary_writer.add_histogram('Logits-bias_10/' + 'batch_' + str(i), output_cosine[0], epoch)
                                 tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1], epoch)
 
     if epoch == args.epochs:
-        cosine_similarity = compute_weight_cosine(model)
+        # cosine_similarity = compute_weight_cosine(model)
         torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
         print (cosine_similarity)
 
@@ -549,6 +565,9 @@ def test(testloader, model, criterion, epoch, use_cuda):
         add_summary_value(tb_summary_writer, 'Loss/test', losses.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
+        # the length of features
+        tb_summary_writer.add_histogram('Feature_Length/test', features.norm(dim=1), epoch)
+        add_summary_value(tb_summary_writer, 'Feature_Length/test', features.norm(dim=1).mean(), epoch)
 
     return (losses.avg, top1.avg)
 
@@ -567,4 +586,3 @@ def adjust_learning_rate(optimizer, epoch):
 
 if __name__ == '__main__':
     main()
-
