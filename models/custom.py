@@ -11,8 +11,9 @@ _detach = None
 _normlinear = None
 _normconv2d = None
 _coeff = True
+_scale_linear = 16.0
 
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None, coeff=True):
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None, coeff=True, scale_linear=16.0):
 
     global Linear_Class
     Linear_Class = linear
@@ -38,6 +39,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _coeff
     if coeff is not None:
         _coeff = coeff
+
+    global _scale_linear
+    if scale_linear is not None:
+        _scale_linear = scale_linear
 
 
 class Linear(nn.Linear):
@@ -327,7 +332,7 @@ class Conv2dPR_Detach(nn.Conv2d):
 
 class LinearNorm(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=True, eps=1e-8):
+    def __init__(self, in_features, out_features, bias=True, eps=1e-8, v=16.0):
         super(LinearNorm, self).__init__(in_features, out_features, bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
@@ -363,6 +368,9 @@ class LinearNorm(nn.Linear):
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '8':
             self.g = nn.Parameter(torch.ones(1, 1))
+        elif _normlinear == '9':
+            self.v = _scale_linear
+            self.g = nn.Parameter(torch.ones(out_features, 1))
 
     def forward(self, x):
 
@@ -405,12 +413,15 @@ class LinearNorm(nn.Linear):
 
         elif _normlinear == '7':
             x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / torch.sqrt(
-                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*1
+            weight = self.weight / lens  # out_feature*1
 
         elif _normlinear == '8':
             weight = lens.mean(dim=0, keepdim=True) * self.weight / lens
             self.g.data = lens.mean(dim=0, keepdim=True)
+
+        elif _normlinear == '9':
+            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight / lens  # out_feature*1
 
         elif _normlinear is None:
             weight = self.weight
