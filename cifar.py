@@ -225,7 +225,7 @@ def main():
                 if custom._normlinear == '3-1' or custom._normlinear == '3-5' or custom._normlinear == '3-7':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
-                elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4' or custom._normlinear == '3-6':
+                elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4' or custom._normlinear == '3-6' or custom._normlinear == '3-8' or custom._normlinear == '3-9':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
     if custom._normconv2d is not None:
@@ -348,7 +348,7 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     :return:
     '''
 
-    weight_len = torch.abs(model.module.classifier.g).squeeze(dim=1)
+    weight_len = torch.abs(model.module.classifier.g.clamp(min=1e-5)).squeeze(dim=1)
     bias = model.module.classifier.bias
 
     retures = []
@@ -356,12 +356,14 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
         if i < outputs.size(0):
             output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
 
-            if custom._normlinear=='9':
-                feature_len = model.module.classifier.v
-            else:
-                feature_len = features[i].norm().clamp(min=1e-5)  # a scalar
+            # if custom._normlinear=='9':
+            #     feature_len = model.module.classifier.v
+            # else:
+            #     feature_len = features[i].norm().clamp(min=1e-5)  # a scalar
 
-            cosine = output / weight_len.clamp(min=1e-5) / feature_len  # num_classes
+            feature_len = model.module.classifier.x[0][i].norm().clamp(min=1e-5)  # a scalar
+
+            cosine = output / weight_len / feature_len  # num_classes
             retures.append((output, cosine))
 
     return retures              # num_classes
@@ -462,6 +464,11 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     feature_norms = features.norm(p=2, dim=1).cpu()
     tb_summary_writer.add_histogram('Feature_Length/train', feature_norms, epoch)
     add_summary_value(tb_summary_writer, 'Feature_Length/train', feature_norms.mean(), epoch)
+
+    x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
+    tb_summary_writer.add_histogram('X_Lens/train', x_lens, epoch)
+    add_summary_value(tb_summary_writer, 'X_Lens/train', x_lens.mean().item(), epoch)
+
 
     # the cosine similarity between weights
     cosine_similarity = compute_weight_cosine(model).tril(diagonal=-1)
@@ -568,6 +575,10 @@ def test(testloader, model, criterion, epoch, use_cuda):
         # the length of features
         tb_summary_writer.add_histogram('Feature_Length/test', features.norm(dim=1), epoch)
         add_summary_value(tb_summary_writer, 'Feature_Length/test', features.norm(dim=1).mean(), epoch)
+
+        x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
+        tb_summary_writer.add_histogram('X_Lens/test', x_lens, epoch)
+        add_summary_value(tb_summary_writer, 'X_Lens/test', x_lens.mean().item(), epoch)
 
     return (losses.avg, top1.avg)
 

@@ -338,6 +338,8 @@ class LinearNorm(nn.Linear):
 
         self.eps = eps
         self.lens = nn.Parameter(torch.ones(out_features, 1))
+        self.in_features = in_features
+        self.x = []
 
         if _normlinear == '3-1' or _normlinear is None:
             self.g = nn.Parameter(torch.ones(out_features, 1))
@@ -346,7 +348,7 @@ class LinearNorm(nn.Linear):
             self.weight.register_hook(lambda grad: self.lens/self.g*grad)
         elif _normlinear == '3-2':
             self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '3-3':
+        elif _normlinear == '3-3' or _normlinear == '3-8':
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad/out_features)
         elif _normlinear == '3-4':
@@ -358,6 +360,10 @@ class LinearNorm(nn.Linear):
             self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
         elif _normlinear == '3-7':
             self.g = nn.Parameter(torch.ones(out_features, 1))
+        elif _normlinear == '3-9':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.g.register_hook(lambda grad: grad / out_features)
+            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
@@ -368,9 +374,11 @@ class LinearNorm(nn.Linear):
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '8':
             self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '9':
+        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
             self.v = _scale_linear
             self.g = nn.Parameter(torch.ones(out_features, 1))
+            if _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
+                self.BN = nn.BatchNorm1d(in_features, affine=False)
 
     def forward(self, x):
 
@@ -384,8 +392,13 @@ class LinearNorm(nn.Linear):
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight
 
-        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' or _normlinear == '3-6':
-            weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
+        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9':
+            if _normlinear == '3-8' or _normlinear == '3-9':
+                lens_ = lens.detach()
+            else:
+                lens_ = lens
+
+            weight = torch.abs(self.g) * self.weight / lens_  # out_feature*in_features
 
         elif _normlinear == '3-7':
             gi = torch.abs(self.g)
@@ -423,12 +436,30 @@ class LinearNorm(nn.Linear):
             x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight / lens  # out_feature*1
 
+        elif _normlinear == '10':
+            x = self.BN(x)/(self.in_features**0.5)
+            x = self.v * x  # batch*1
+            weight = self.weight / lens  # out_feature*1
+
+        elif _normlinear == '11':
+            x = self.BN(x)
+            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight / lens  # out_feature*1
+
+        elif _normlinear == '12':
+            x = self.BN(x) / (self.in_features ** 0.5)
+            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            weight = self.weight / lens  # out_feature*1
+
         elif _normlinear is None:
             weight = self.weight
             self.g.data = lens.data
 
         else:
             raise AssertionError('_norm is not valid!')
+
+        self.x = []
+        self.x.append(x)
 
         return F.linear(x, weight, self.bias)
 
