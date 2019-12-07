@@ -387,7 +387,11 @@ class LinearNorm(nn.Linear):
     def x_grad_hook(self, m, grad_input, grad_output):
 
         grad_input_list = list(grad_input)
+
         grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
+
+        grad_input_list[1] = grad_output[0].matmul(self.weight)
+
         grad_input_ = tuple(grad_input_list)
 
         return grad_input_
