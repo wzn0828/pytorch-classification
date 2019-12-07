@@ -348,7 +348,7 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     :return:
     '''
 
-    weight_len = torch.abs(model.module.classifier.g.clamp(min=1e-5)).squeeze(dim=1)
+    weight_len = torch.abs(model.module.classifier.g).clamp(min=1e-5).squeeze(dim=1)
     bias = model.module.classifier.bias
 
     retures = []
@@ -369,10 +369,10 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     return retures              # num_classes
 
 def compute_weight_cosine(model):
-    weight = model.module.classifier.weight
+    weight = model.module.classifier.weight.data.cpu()
     weight = weight/weight.norm(dim=1, keepdim=True)
 
-    return torch.matmul(weight, weight.t()).data.cpu()
+    return torch.matmul(weight, weight.t())
 
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
@@ -451,24 +451,23 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
     add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
-    tb_summary_writer.add_histogram('fc_bias', model.module.classifier.bias, epoch)
+    tb_summary_writer.add_histogram('Hists/fc_bias', model.module.classifier.bias, epoch)
     # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.classifier.bias[0], epoch)
 
     # compute the cosine of classify layer
     output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
     for i, output_cosine in enumerate(output_cosines):
-        tb_summary_writer.add_histogram('Logits-bias/' + 'batch_' + str(i), output_cosine[0], epoch)
+        tb_summary_writer.add_histogram('Hists/Logits-bias/' + 'batch_' + str(i), output_cosine[0], epoch)
         tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
 
     # the length of features
-    feature_norms = features.norm(p=2, dim=1).cpu()
-    tb_summary_writer.add_histogram('Feature_Length/train', feature_norms, epoch)
-    add_summary_value(tb_summary_writer, 'Feature_Length/train', feature_norms.mean(), epoch)
+    feature_norms = features.data.norm(p=2, dim=1).cpu()
+    tb_summary_writer.add_histogram('Hists/Feature_Length/train', feature_norms, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Feature_Length/train', feature_norms.mean(), epoch)
 
-    x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
-    tb_summary_writer.add_histogram('X_Lens/train', x_lens, epoch)
-    add_summary_value(tb_summary_writer, 'X_Lens/train', x_lens.mean().item(), epoch)
-
+    x_lens = model.module.classifier.x[0].data.norm(p=2, dim=1, keepdim=True)
+    tb_summary_writer.add_histogram('Hists/X_Lens/train', x_lens, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/X_Lens/train', x_lens.mean().item(), epoch)
 
     # the cosine similarity between weights
     cosine_similarity = compute_weight_cosine(model).tril(diagonal=-1)
@@ -480,8 +479,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
             if para is not None:
                 for para_name in args.tensorboard_paras:
                     if para_name in name:
-                        if para_name == '.g':
-                            para.data = torch.abs(para.data)
+                        # if para_name == '.g':
+                        #     para.data = torch.abs(para.data)
                         tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
                         add_summary_value(tb_summary_writer, 'Scalars/' + name.replace('.', '/'), para.mean(), epoch)
                         if para.grad is not None:
@@ -494,7 +493,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                             if para.grad is not None:
                                 tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
                             for i, output_cosine in enumerate(output_cosines):
-                                tb_summary_writer.add_histogram('Logits-bias_10/' + 'batch_' + str(i), output_cosine[0], epoch)
+                                tb_summary_writer.add_histogram('Hists/Logits-bias_10/' + 'batch_' + str(i), output_cosine[0], epoch)
                                 tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1], epoch)
 
     if epoch == args.epochs:
@@ -573,12 +572,12 @@ def test(testloader, model, criterion, epoch, use_cuda):
         add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
         # the length of features
-        tb_summary_writer.add_histogram('Feature_Length/test', features.norm(dim=1), epoch)
-        add_summary_value(tb_summary_writer, 'Feature_Length/test', features.norm(dim=1).mean(), epoch)
+        tb_summary_writer.add_histogram('Hists/Feature_Length/test', features.norm(dim=1), epoch)
+        add_summary_value(tb_summary_writer, 'Scalars/Feature_Length/test', features.norm(dim=1).mean(), epoch)
 
         x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
-        tb_summary_writer.add_histogram('X_Lens/test', x_lens, epoch)
-        add_summary_value(tb_summary_writer, 'X_Lens/test', x_lens.mean().item(), epoch)
+        tb_summary_writer.add_histogram('Hists/X_Lens/test', x_lens, epoch)
+        add_summary_value(tb_summary_writer, 'Scalars/X_Lens/test', x_lens.mean().item(), epoch)
 
     return (losses.avg, top1.avg)
 
