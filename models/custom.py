@@ -367,7 +367,6 @@ class LinearNorm(nn.Linear):
         elif _normlinear == '3-10':
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad / out_features)
-            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
             self.register_backward_hook(self.x_grad_hook)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
@@ -386,9 +385,12 @@ class LinearNorm(nn.Linear):
                 self.BN = nn.BatchNorm1d(in_features, affine=False)
 
     def x_grad_hook(self, m, grad_input, grad_output):
-        print(m)
-        # print(grad_input[3].shape)
-        print(grad_output[0][1])
+
+        grad_input_list = list(grad_input)
+        grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
+        grad_input_ = tuple(grad_input_list)
+
+        return grad_input_
 
     def forward(self, x):
 
