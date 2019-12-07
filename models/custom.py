@@ -364,6 +364,11 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad / out_features)
             self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
+        elif _normlinear == '3-10':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.g.register_hook(lambda grad: grad / out_features)
+            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
+            self.register_backward_hook(self.x_grad_hook)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '5-1':
@@ -380,6 +385,11 @@ class LinearNorm(nn.Linear):
             if _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
                 self.BN = nn.BatchNorm1d(in_features, affine=False)
 
+    def x_grad_hook(self, m, grad_input, grad_output):
+        print(m)
+        # print(grad_input[3].shape)
+        print(grad_output[0][1])
+
     def forward(self, x):
 
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
@@ -392,8 +402,9 @@ class LinearNorm(nn.Linear):
             x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
             weight = self.weight
 
-        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9':
-            if _normlinear == '3-8' or _normlinear == '3-9':
+        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' \
+                or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10':
+            if _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10':
                 lens_ = lens.detach()
             else:
                 lens_ = lens
