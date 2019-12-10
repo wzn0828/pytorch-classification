@@ -367,6 +367,12 @@ class LinearNorm(nn.Linear):
         elif _normlinear == '3-10':
             self.g = nn.Parameter(torch.ones(1, 1))
             self.g.register_hook(lambda grad: grad / out_features)
+            # self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
+            self.register_backward_hook(self.x_grad_hook)
+        elif _normlinear == '3-11':
+            self.g = nn.Parameter(torch.ones(1, 1))
+            self.g.register_hook(lambda grad: grad / out_features)
+            # self.weight.register_hook(lambda grad: ((self.lens / torch.abs(self.g))**2)*grad)
             self.register_backward_hook(self.x_grad_hook)
         elif _normlinear == '4' or _normlinear == '7':
             self.v = nn.Parameter(torch.ones(1, 1))
@@ -388,9 +394,20 @@ class LinearNorm(nn.Linear):
 
         grad_input_list = list(grad_input)
 
-        grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
+        # # the grad of weight
+        # grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
 
-        grad_input_list[1] = grad_output[0].matmul(self.weight)
+        # # the grad of weight
+        # grad_input_list[2] = ((self.lens.t() / torch.abs(self.g.t()))**2) * (grad_input_list[2])
+
+        # # the grad of x
+        # grad_input_list[1] = grad_output[0].matmul(self.weight)
+
+        # # rewrite the grad of weight
+        # grad_input_list[2] = self.x[0].t().matmul(grad_output[0])
+
+        # rewrite the grad of weight
+        grad_input_list[2] = self.x[0].t().matmul(grad_output[0])*(self.lens.t() / torch.abs(self.g.t()))
 
         grad_input_ = tuple(grad_input_list)
 
@@ -409,13 +426,13 @@ class LinearNorm(nn.Linear):
             weight = self.weight
 
         elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' \
-                or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10':
-            if _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10':
-                lens_ = lens.detach()
-            else:
-                lens_ = lens
+                or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10' or _normlinear == '3-11':
+            # if _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10' or _normlinear == '3-11':
+            #     lens_ = lens.detach()
+            # else:
+            #     lens_ = lens
 
-            weight = torch.abs(self.g) * self.weight / lens_  # out_feature*in_features
+            weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
 
         elif _normlinear == '3-7':
             gi = torch.abs(self.g)

@@ -226,7 +226,7 @@ def main():
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
                 elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4' or custom._normlinear == '3-6' \
-                        or custom._normlinear == '3-8' or custom._normlinear == '3-9' or custom._normlinear == '3-10':
+                        or custom._normlinear == '3-8' or custom._normlinear == '3-9' or custom._normlinear == '3-10' or custom._normlinear == '3-11':
                     m.g.data = torch.sqrt(
                         (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
     if custom._normconv2d is not None:
