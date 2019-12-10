@@ -384,9 +384,13 @@ class LinearNorm(nn.Linear):
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '8':
             self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
+        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '12' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3':
             self.v = _scale_linear
             self.g = nn.Parameter(torch.ones(out_features, 1))
+
+            if _normlinear == '9-1' or _normlinear == '9-3':
+                self.weight.register_hook(lambda grad: self.lens * grad)
+
             if _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
                 self.BN = nn.BatchNorm1d(in_features, affine=False)
 
@@ -466,9 +470,15 @@ class LinearNorm(nn.Linear):
             weight = lens.mean(dim=0, keepdim=True) * self.weight / lens
             self.g.data = lens.mean(dim=0, keepdim=True)
 
-        elif _normlinear == '9':
+        elif _normlinear == '9' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3':
             x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / lens  # out_feature*1
+
+            if _normlinear == '9-2' or _normlinear == '9-3':
+                lens_ = lens.detach()
+            else:
+                lens_ = lens
+
+            weight = self.weight / lens_  # out_feature*1
 
         elif _normlinear == '10':
             x = self.BN(x)/(self.in_features**0.5)
