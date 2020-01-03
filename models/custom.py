@@ -340,6 +340,9 @@ class LinearNorm(nn.Linear):
         self.lens = nn.Parameter(torch.ones(out_features, 1))
         self.in_features = in_features
         self.x = []
+        self.feature_len = []
+        self.bias_ = self.weight.data.new_full((1, 1), _scale_linear)
+        self.register_buffer('_bias', torch.zeros_like(self.bias.data))
 
         if _normlinear == '3-1' or _normlinear is None:
             self.g = nn.Parameter(torch.ones(out_features, 1))
@@ -375,7 +378,8 @@ class LinearNorm(nn.Linear):
             # self.weight.register_hook(lambda grad: ((self.lens / torch.abs(self.g))**2)*grad)
             self.register_backward_hook(self.x_grad_hook)
         elif _normlinear == '4' or _normlinear == '7':
-            self.v = nn.Parameter(torch.ones(1, 1))
+            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
+            self.g = nn.Parameter(torch.ones(out_features, 1))
         elif _normlinear == '5-1':
             self.g = nn.Parameter(torch.ones(out_features, 1))
             self.v = nn.Parameter(torch.ones(1, 1))
@@ -384,19 +388,45 @@ class LinearNorm(nn.Linear):
             self.v = nn.Parameter(torch.ones(1, 1))
         elif _normlinear == '8':
             self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '12' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3':
-            self.v = _scale_linear
+        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '11-1' or _normlinear == '12' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-1' or _normlinear == '13-2' or _normlinear == '13-3':
+            # self.v = _scale_linear
+            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
             self.g = nn.Parameter(torch.ones(out_features, 1))
 
-            if _normlinear == '9-1' or _normlinear == '9-3':
+            if _normlinear == '9-1' or _normlinear == '9-3' or _normlinear == '13-3' or _normlinear == '11-1':
                 self.weight.register_hook(lambda grad: self.lens * grad)
 
-            if _normlinear == '10' or _normlinear == '11' or _normlinear == '12':
+            # if _normlinear == '13-1' or _normlinear == '13-3':
+            #     self.register_backward_hook(self.x_grad_hook)
+
+            if _normlinear == '10' or _normlinear == '11' or _normlinear == '11-1' or _normlinear == '12':
                 self.BN = nn.BatchNorm1d(in_features, affine=False)
 
-    def x_grad_hook(self, m, grad_input, grad_output):
+        elif _normlinear == '16':
+            # self.v = _scale_linear
+            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
+            self.g = nn.Parameter(torch.ones(out_features, 1))
 
-        grad_input_list = list(grad_input)
+        elif _normlinear == '17':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
+            self.weight.register_hook(lambda grad: self.lens * grad)
+
+    def x_grad_hook(self, m, grad_input, grad_output):
+        '''
+        rewrite the gradient of this module's input
+        :param m: this module
+        :param grad_input: a 3 element tuble: grad_input[0] is bias's grad with shpe of (100,),
+        grad_input[1] is x's grad with shape of (128, 512), grad_input[2] is w's grad with shape of (512, 100)
+        :param grad_output: (128,100), that is the grad of cross-entropy loss w.r.t. this module's output, which is just (pm-qm)
+        :return: none or changed version of grad_input
+        '''
+
+        print (m)
+        print (grad_input[0].shape)
+        print (grad_input[1].shape)
+        print (grad_output[0].shape)
+
+        # grad_input_list = list(grad_input)
 
         # # the grad of weight
         # grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
@@ -404,23 +434,36 @@ class LinearNorm(nn.Linear):
         # # the grad of weight
         # grad_input_list[2] = ((self.lens.t() / torch.abs(self.g.t()))**2) * (grad_input_list[2])
 
-        # # the grad of x
-        # grad_input_list[1] = grad_output[0].matmul(self.weight)
+        # the grad of x
+        # grad_input_list[1] = grad_input_list[1]*((self.feature_len[0]/self.v)**2)         # / self.v
+        # grad_input_list[1] = grad_input_list[1] / self.v
+        # grad_input_list[1] = (grad_output[0].matmul(self.weight/self.lens)) * self.v / self.feature_len[0]
+        # aa = grad_input_list[1] - (grad_output[0].matmul(self.weight / self.lens)) #* self.v / self.feature_len[0]
+
+        # aa = grad_input_list[2] - self.x[0].t().matmul(grad_output[0])      #/self.lens.t()
+        #
+        # print (aa)
 
         # # rewrite the grad of weight
         # grad_input_list[2] = self.x[0].t().matmul(grad_output[0])
 
-        # rewrite the grad of weight
-        grad_input_list[2] = self.x[0].t().matmul(grad_output[0])*(self.lens.t() / torch.abs(self.g.t()))
+        # # rewrite the grad of weight
+        # grad_input_list[2] = self.x[0].t().matmul(grad_output[0])*(self.lens.t() / torch.abs(self.g.t()))
 
-        grad_input_ = tuple(grad_input_list)
+        # grad_input_ = tuple(grad_input_list)
 
-        return grad_input_
+        # return grad_input_
 
     def forward(self, x):
 
+        self._bias = self.bias.data
+
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
         self.lens.data = lens.data
+
+        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+        self.feature_len = []
+        self.feature_len.append(feature_len.data)
 
         if _normlinear == '1':
             weight = self.weight / lens  # out_feature*1
@@ -450,8 +493,9 @@ class LinearNorm(nn.Linear):
             return out
 
         elif _normlinear == '4':
-            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+            x_ = self.v * x / feature_len  # batch*512
             weight = self.weight
+            self.g.data = lens.data
 
         elif _normlinear == '5-1' or _normlinear == '5-2':
             weight = torch.abs(self.g) * self.weight / torch.sqrt(
@@ -470,42 +514,67 @@ class LinearNorm(nn.Linear):
             weight = lens.mean(dim=0, keepdim=True) * self.weight / lens
             self.g.data = lens.mean(dim=0, keepdim=True)
 
-        elif _normlinear == '9' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3':
-            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+        elif _normlinear == '9' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-1' or _normlinear == '13-2' or _normlinear == '13-3':
 
-            if _normlinear == '9-2' or _normlinear == '9-3':
+            # if _normlinear == '13-2' or _normlinear == '13-3':
+            #     feature_len_ = feature_len.detach()
+            # else:
+            #     feature_len_ = feature_len
+
+            x_ = self.v * x / feature_len       # batch*512
+
+            if _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-3':
+                lens_ = lens.detach()
+            else:
+                lens_ = lens
+
+            weight = self.weight / lens_  # out_feature*512
+
+        elif _normlinear == '16':
+            x_ = self.v * x / feature_len
+            self.x = []
+            self.x.append(x_)
+
+            return linear_norm16(x, self.weight, self.bias, self.v, self.eps)
+
+        elif _normlinear == '17':
+            x_ = x
+            weight = self.weight / (lens.detach())  # out_feature*512
+            # self.g.data = lens.data
+
+
+        # elif _normlinear == '10':
+        #     x = self.BN(x)/(self.in_features**0.5)
+        #     x = self.v * x  # batch*1
+        #     weight = self.weight / lens  # out_feature*1
+        #
+        elif _normlinear == '11' or _normlinear == '11-1':
+            x = self.BN(x)
+            x_ = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+            if _normlinear == '11-1':
                 lens_ = lens.detach()
             else:
                 lens_ = lens
 
             weight = self.weight / lens_  # out_feature*1
-
-        elif _normlinear == '10':
-            x = self.BN(x)/(self.in_features**0.5)
-            x = self.v * x  # batch*1
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear == '11':
-            x = self.BN(x)
-            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear == '12':
-            x = self.BN(x) / (self.in_features ** 0.5)
-            x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear is None:
-            weight = self.weight
-            self.g.data = lens.data
-
-        else:
-            raise AssertionError('_norm is not valid!')
+        #
+        # elif _normlinear == '12':
+        #     x = self.BN(x) / (self.in_features ** 0.5)
+        #     x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+        #     weight = self.weight / lens  # out_feature*1
+        #
+        # elif _normlinear is None:
+        #     weight = self.weight
+        #     self.g.data = lens.data
+        #
+        # else:
+        #     raise AssertionError('_norm is not valid!')
 
         self.x = []
-        self.x.append(x)
+        self.x.append(x_)
 
-        return F.linear(x, weight, self.bias)
+        return F.linear(x_, weight, self.bias)
 
 
 class Conv2dNorm(nn.Conv2d):
@@ -705,6 +774,68 @@ class Linear_Norm37(torch.autograd.Function):
         return d_gi, d_a, None
 
 linear_norm37 = Linear_Norm37.apply
+
+
+
+
+
+class Linear_Norm16(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, bias, v, eps=1e-8):
+        '''
+        :param ctx:
+        :param x: batch x dim_feature
+        :param weight: num_classes x dim_feature
+        :param bias: (num_classes, )
+        :param v: scale
+        :return:
+        '''
+
+        weight_lens = torch.sqrt((weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=eps))  # num_classes*1
+
+        feature_lens = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=eps))  # batch*1
+
+        normalized_x = x / feature_lens  # batch*dim_feature
+
+        normalized_weight = weight / weight_lens  # num_classes x dim_feature
+
+        out = v * normalized_x.matmul(torch.t(normalized_weight))
+
+        if bias is not None:
+            out = out + bias
+
+        ctx.save_for_backward(x, weight, v, weight_lens, feature_lens, normalized_x, normalized_weight)
+
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        '''
+        :param ctx:
+        :param grad_output: batch x num_classes
+        :return:
+        '''
+        x, weight, v, weight_lens, feature_lens, normalized_x, normalized_weight = ctx.saved_tensors
+
+        # the gradient of bias
+        d_bias = grad_output.sum(dim=0)         # num_classes,
+
+        # the gradient of x
+        rejection_x = torch.eye(x.size(1), device=torch.device('cuda')).unsqueeze(0) - torch.matmul(normalized_x.unsqueeze(2), normalized_x.unsqueeze(1))   # 128 x 512 x 512
+        grad_x = torch.matmul(rejection_x, normalized_weight.t())                   # 128 x 512 x 100
+        grad_x = torch.matmul(grad_x, grad_output.unsqueeze(2)).squeeze(dim=2)      # 128 x 512
+        d_x = grad_x * v / feature_lens                                             # 128 x 512
+
+        # the gradient of weight
+        rejection_w = torch.eye(weight.size(1), device=torch.device('cuda')).unsqueeze(0) #- torch.matmul(normalized_weight.unsqueeze(2), normalized_weight.unsqueeze(1))     # 100 x 512 x 512
+        grad_w = torch.matmul(rejection_w, normalized_x.t())                            # 100 x 512 x 128
+        grad_w = torch.matmul(grad_w, grad_output.t().unsqueeze(2)).squeeze(dim=2)      # 100 x 512
+        d_w = grad_w * v        #/ weight_lens                                                  # 100 x 512
+
+        return d_x, d_w, d_bias, None, None
+
+linear_norm16 = Linear_Norm16.apply
+
 
 
 # # test code

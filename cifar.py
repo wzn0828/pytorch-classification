@@ -92,35 +92,36 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
-args.gpu_id = '1,2'
+args.gpu_id = '3'
 
 args.dataset = 'cifar100'
-args.arch = 'resnet'
-args.depth = 110
-args.block_name = 'basicblock'
-args.weight_decay = 1e-4
+args.arch = 'vgg19_bn'
+# args.weight_decay = 0
+args.init_ave_length = False
+args.average_length = False
+args.average_fc_length = False
+args.average_fc_g = False
+set_gl_variable(linear=LinearNorm, normlinear='11-1', scale_linear=16.0)
+args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/VGG/cifar100_vgg19bn_wd5e-4_norm-l11-1-s16'
 
-# set_gl_variable(LinearProDis, Conv2dProDis, bn=InPlaceABNSync)
-# set_gl_variable(bn=InPlaceABNSync)
-
-args.resume = '/home/wzn/PycharmProjects/pytorch-classification/Experiments/cifar100_resnet110_basic_wd1e-4_prodis-linear-conv2d/model_best.pth.tar'
-args.evaluate = True
-
-args.checkpoint = 'Experiments/cifar100_resnet110_basic_wd1e-4_prodis-linear-conv2d_finetune'
-# args.checkpoint = 'Experiments/debug'
+args.normlosstype = 'SmoothL1'     # 'L2',  'SmoothL1', 'SAFN' , 'L1'
+args.feature_radius = 16.0
+args.weight_L2norm = 0.01
 
 args.train_batch = 128
 args.schedule = [81, 122]
 args.epochs = 164
 
+args.tensorboard_paras = ['.g', '.v', '.lens']
+
 args.data_path = '/home/wzn/Datasets/Classification'
 
 args.manualSeed = 123
 args.print_freq = 50
+# ------local config------ #
 
 global tb_summary_writer
 tb_summary_writer = tb and tb.SummaryWriter(args.checkpoint)
-# ------local config------ #
 
 state = {k: v for k, v in args._get_kwargs()}
 
@@ -288,6 +289,7 @@ def main():
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 
+        # if epoch > 4:
         lr_scheduler.step(epoch+1)
 
         test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
@@ -335,6 +337,16 @@ def ave_fc_length(model):
             m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
 
 
+def normalize_weight(model):
+    for m in model.modules():
+        if isinstance(m, LinearNorm):
+            lens = torch.sqrt(
+                m.weight.pow(2).sum(dim=1, keepdim=True).clamp(
+                    min=m.eps))
+
+            m.weight.data = 8.0 * m.weight / lens
+
+
 def ave_fc_g(model):
     for m in model.modules():
         if isinstance(m, LinearNorm):
@@ -350,7 +362,7 @@ def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
     '''
 
     weight_len = torch.abs(model.module.classifier.g).clamp(min=1e-5).squeeze(dim=1)
-    bias = model.module.classifier.bias
+    bias = model.module.classifier._bias
 
     retures = []
     for i in sample:
@@ -383,6 +395,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+    losses_norm = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
@@ -403,6 +416,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         if args.average_fc_g:
             ave_fc_g(model)
 
+        # if custom._normlinear is not None and custom._normlinear == '4':
+        #     normalize_weight(model)
+
         # compute output
         outputs, features = model(inputs)
         loss = criterion(outputs, targets)
@@ -412,6 +428,14 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         losses.update(loss.item(), inputs.size(0))
         top1.update(prec1.item(), inputs.size(0))
         top5.update(prec5.item(), inputs.size(0))
+
+        # larger norm more transferable: SAFN
+        if custom._normlinear is not None and custom._normlinear == '17':
+            if epoch > 100:
+                args.feature_radius = 4.0
+            feature_L2norm_loss = get_L2norm_loss_self_driven(features)
+            losses_norm.update(feature_L2norm_loss.item(), inputs.size(0))
+            loss = loss + feature_L2norm_loss
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -448,6 +472,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # bar.finish()
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
@@ -594,6 +619,25 @@ def adjust_learning_rate(optimizer, epoch):
         state['lr'] *= args.gamma
         for param_group in optimizer.param_groups:
             param_group['lr'] = state['lr']
+
+
+def get_L2norm_loss_self_driven(x):
+    x_len = x.norm(p=2, dim=1, keepdim=True)
+    if args.normlosstype == 'SAFN':
+        radius = x_len.detach()
+        assert radius.requires_grad == False
+        radius = radius + 1.0
+        l = 0.5*((x_len - radius) ** 2).mean()
+    elif args.normlosstype == 'L2':
+        diff = x_len - args.feature_radius
+        l = 0.5 * torch.pow(diff, 2).mean()
+    elif args.normlosstype == 'SmoothL1':
+        l = F.smooth_l1_loss(x_len, torch.full_like(x_len, args.feature_radius))
+    elif args.normlosstype == 'L1':
+        l = F.l1_loss(x_len, torch.full_like(x_len, args.feature_radius))
+
+    return args.weight_L2norm * l
+
 
 if __name__ == '__main__':
     main()
