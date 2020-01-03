@@ -411,6 +411,9 @@ class LinearNorm(nn.Linear):
             self.g = nn.Parameter(torch.ones(out_features, 1))
             self.weight.register_hook(lambda grad: self.lens * grad)
 
+        elif _normlinear == '18':
+            self.g = nn.Parameter(torch.ones(out_features, 1))
+
     def x_grad_hook(self, m, grad_input, grad_output):
         '''
         rewrite the gradient of this module's input
@@ -564,9 +567,15 @@ class LinearNorm(nn.Linear):
         #     x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
         #     weight = self.weight / lens  # out_feature*1
         #
-        # elif _normlinear is None:
-        #     weight = self.weight
-        #     self.g.data = lens.data
+        elif _normlinear  == '18':
+            weight = self.weight.detach()
+            x_ = x
+            self.g.data = lens.data
+
+        elif _normlinear is None:
+            weight = self.weight
+            x_ = x
+            self.g.data = lens.data
         #
         # else:
         #     raise AssertionError('_norm is not valid!')
