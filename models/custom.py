@@ -17,8 +17,10 @@ _m = 1.0
 _detach_diff = True
 _m_mode = 'fix'
 
+_bias = True
+
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
-                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix'):
+                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True):
     global Linear_Class
     Linear_Class = linear
 
@@ -59,6 +61,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _m_mode
     if m_mode is not None:
         _m_mode = m_mode
+
+    global _bias
+    if bias is not None:
+        _bias = bias
 
 
 class Linear(nn.Linear):
@@ -348,8 +354,8 @@ class Conv2dPR_Detach(nn.Conv2d):
 
 class LinearNorm(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=True, eps=1e-8):
-        super(LinearNorm, self).__init__(in_features, out_features, bias)
+    def __init__(self, in_features, out_features, eps=1e-8):
+        super(LinearNorm, self).__init__(in_features, out_features, _bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
         self.eps = eps
@@ -360,10 +366,19 @@ class LinearNorm(nn.Linear):
         if _normlinear == '17':
             self.weight.register_hook(lambda grad: self.lens * grad)
 
-    def forward(self, x):
+    def forward(self, x, label):
+
         # weigth length
-        lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
+        lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
         self.lens.data = lens.data
+
+        # feature norm
+        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        # costheta
+        cos_theta = torch.mm(x / feature_len, (self.weight / lens).t())  # B x class_num#
+        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
+
 
         if _normlinear == '17':
             x_ = x
@@ -380,7 +395,7 @@ class LinearNorm(nn.Linear):
         self.x = []
         self.x.append(x_)
 
-        return F.linear(x_, weight, self.bias)
+        return F.linear(x_, weight, self.bias), cos_theta
 
 
 class Conv2dNorm(nn.Conv2d):
