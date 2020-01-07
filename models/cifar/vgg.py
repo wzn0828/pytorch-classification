@@ -30,10 +30,10 @@ class VGG(nn.Module):
         self.classifier = custom.Linear_Class(512, num_classes)
         self._initialize_weights()
 
-    def forward(self, x):
+    def forward(self, x, labels):
         x = self.features(x)
         feature = x.view(x.size(0), -1)
-        x = self.classifier(feature)
+        x = self.classifier(feature, labels)
 
         return x, feature
 
