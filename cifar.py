@@ -92,7 +92,7 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
-args.gpu_id = '3'
+args.gpu_id = '0'
 
 args.dataset = 'cifar100'
 args.arch = 'vgg19_bn'
@@ -101,8 +101,8 @@ args.init_ave_length = False
 args.average_length = False
 args.average_fc_length = False
 args.average_fc_g = False
-set_gl_variable(linear=LinearNorm, normlinear='11-1', scale_linear=16.0)
-args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/VGG/cifar100_vgg19bn_wd5e-4_norm-l11-1-s16'
+set_gl_variable(linear=LinearNorm, normlinear='18')
+args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_norm-l18'
 
 args.normlosstype = 'SmoothL1'     # 'L2',  'SmoothL1', 'SAFN' , 'L1'
 args.feature_radius = 16.0
@@ -215,33 +215,6 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=args.num_classes)
 
-    # initialize the weights to have identical lengths
-    if args.init_ave_length:
-        ave_length(model)
-
-    # initialize the g of weight normalization
-    if custom._normlinear is not None:
-        for m in model.modules():
-            if isinstance(m, LinearNorm):
-                if custom._normlinear == '3-1' or custom._normlinear == '3-5' or custom._normlinear == '3-7':
-                    m.g.data = torch.sqrt(
-                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
-                elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4' or custom._normlinear == '3-6' \
-                        or custom._normlinear == '3-8' or custom._normlinear == '3-9' or custom._normlinear == '3-10' or custom._normlinear == '3-11':
-                    m.g.data = torch.sqrt(
-                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
-    if custom._normconv2d is not None:
-        for m in model.modules():
-            if isinstance(m, Conv2dNorm):
-                if custom._normconv2d == '3-1' or custom._normconv2d == '3-5':
-                    m.g.data = torch.sqrt(
-                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
-                            min=m.eps)).unsqueeze(-1).unsqueeze(-1)
-                elif custom._normconv2d == '3-2' or custom._normconv2d == '3-3' or custom._normconv2d == '3-4':
-                    m.g.data = torch.sqrt(
-                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
-                            min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
-
     model = torch.nn.DataParallel(model).cuda()
 
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
@@ -289,7 +262,6 @@ def main():
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 
-        # if epoch > 4:
         lr_scheduler.step(epoch+1)
 
         test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
@@ -315,79 +287,6 @@ def main():
     print('Best acc:')
     print(best_acc)
 
-
-def ave_length(model):
-    for m in model.modules():
-        if isinstance(m, LinearNorm) or isinstance(m, Conv2dNorm):
-            lens = torch.sqrt(
-                m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp(
-                    min=m.eps))
-            if isinstance(m, Conv2dNorm):
-                lens = lens.unsqueeze(-1).unsqueeze(-1)
-
-            m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
-
-def ave_fc_length(model):
-    for m in model.modules():
-        if isinstance(m, LinearNorm):
-            lens = torch.sqrt(
-                m.weight.pow(2).sum(dim=1, keepdim=True).clamp(
-                    min=m.eps))
-
-            m.weight.data = lens.mean(dim=0, keepdim=True) * m.weight / lens
-
-
-def normalize_weight(model):
-    for m in model.modules():
-        if isinstance(m, LinearNorm):
-            lens = torch.sqrt(
-                m.weight.pow(2).sum(dim=1, keepdim=True).clamp(
-                    min=m.eps))
-
-            m.weight.data = 8.0 * m.weight / lens
-
-
-def ave_fc_g(model):
-    for m in model.modules():
-        if isinstance(m, LinearNorm):
-            m.g.data = m.g.mean(dim=0, keepdim=True) * m.g / m.g
-
-
-def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
-    '''
-    :param outputs: # batch*num_classes
-    :param features: # batch*infeatures(512 in CnX)
-    :param model: model.module.classifier.weight  # num_classes*infeatures(512 in CnX)
-    :return:
-    '''
-
-    weight_len = torch.abs(model.module.classifier.g).clamp(min=1e-5).squeeze(dim=1)
-    bias = model.module.classifier._bias
-
-    retures = []
-    for i in sample:
-        if i < outputs.size(0):
-            output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
-
-            # if custom._normlinear=='9':
-            #     feature_len = model.module.classifier.v
-            # else:
-            #     feature_len = features[i].norm().clamp(min=1e-5)  # a scalar
-
-            feature_len = model.module.classifier.x[0][i].norm().clamp(min=1e-5)  # a scalar
-
-            cosine = output / weight_len / feature_len  # num_classes
-            retures.append((output, cosine))
-
-    return retures              # num_classes
-
-def compute_weight_cosine(model):
-    weight = model.module.classifier.weight.data.cpu()
-    weight = weight/weight.norm(dim=1, keepdim=True)
-
-    return torch.matmul(weight, weight.t())
-
-
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
     model.train()
@@ -409,18 +308,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
             inputs, targets = inputs.cuda(), targets.cuda(async=True)
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
-        # average lengths
-        if args.average_fc_length:
-            ave_fc_length(model)
-
-        if args.average_fc_g:
-            ave_fc_g(model)
-
-        # if custom._normlinear is not None and custom._normlinear == '4':
-        #     normalize_weight(model)
 
         # compute output
-        outputs, features = model(inputs)
+        outputs, cosine, features = model(inputs)
         loss = criterion(outputs, targets)
 
         # measure accuracy and record loss
@@ -456,21 +346,6 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                       epoch, batch_idx, len(trainloader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
 
-    #     # plot progress
-    #     bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-    #                 batch=batch_idx + 1,
-    #                 size=len(trainloader),
-    #                 data=data_time.avg,
-    #                 bt=batch_time.avg,
-    #                 total=bar.elapsed_td,
-    #                 eta=bar.eta_td,
-    #                 loss=losses.avg,
-    #                 top1=top1.avg,
-    #                 top5=top5.avg,
-    #                 )
-    #     bar.next()
-    # bar.finish()
-
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
@@ -478,13 +353,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
     add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
     tb_summary_writer.add_histogram('Hists/fc_bias', model.module.classifier.bias, epoch)
-    # add_summary_value(tb_summary_writer, 'Outputs[0][0] - fc_bias[0]', outputs[0][0] - model.module.classifier.bias[0], epoch)
 
     # compute the cosine of classify layer
-    output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
-    for i, output_cosine in enumerate(output_cosines):
-        tb_summary_writer.add_histogram('Hists/Logits-bias/' + 'batch_' + str(i), output_cosine[0], epoch)
-        tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
+    tb_summary_writer.add_histogram('Cosine/', cosine, epoch)
 
     # the length of features
     feature_norms = features.data.norm(p=2, dim=1).cpu()
@@ -495,10 +366,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     tb_summary_writer.add_histogram('Hists/X_Lens/train', x_lens, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/X_Lens/train', x_lens.mean().item(), epoch)
 
-    # the cosine similarity between weights
-    cosine_similarity = compute_weight_cosine(model).tril(diagonal=-1)
-    mean_cosine_similarity = cosine_similarity.sum()/((args.num_classes*(args.num_classes-1.0))/2.0)
-    add_summary_value(tb_summary_writer, 'Fc_Weights_CosineSimilarMean', mean_cosine_similarity, epoch)
+    # tensorboard weights cosine and weight norm in classification layer
+    mean_cosine, max_cosine, weight_norm = compute_weight_cosine(model)
+    add_summary_value(tb_summary_writer, 'Scalars/Weights_Mean_Cosine', mean_cosine, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Weights_Max_Cosine', max_cosine, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Weight_Length_Mean', weight_norm.mean(), epoch)
+    tb_summary_writer.add_histogram('Hists/Weight_Norm', weight_norm, epoch)
 
     if args.tensorboard_paras is not None:
         for name, para in model.module.named_parameters():
@@ -518,14 +391,6 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                                               epoch)
                             if para.grad is not None:
                                 tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
-                            for i, output_cosine in enumerate(output_cosines):
-                                tb_summary_writer.add_histogram('Hists/Logits-bias_10/' + 'batch_' + str(i), output_cosine[0], epoch)
-                                tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1], epoch)
-
-    if epoch == args.epochs:
-        # cosine_similarity = compute_weight_cosine(model)
-        torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
-        print (cosine_similarity)
 
     return (losses.avg, top1.avg)
 
@@ -553,7 +418,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs, features = model(inputs)
+            outputs, cosine, features = model(inputs)
             loss = criterion(outputs, targets)
 
             # measure accuracy and record loss
@@ -566,18 +431,6 @@ def test(testloader, model, criterion, epoch, use_cuda):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            # plot progress
-            # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-            #             batch=batch_idx + 1,
-            #             size=len(testloader),
-            #             data=data_time.avg,
-            #             bt=batch_time.avg,
-            #             total=bar.elapsed_td,
-            #             eta=bar.eta_td,
-            #             loss=losses.avg,
-            #             top1=top1.avg,
-            #             top5=top5.avg,
-            #             )
             if batch_idx % args.print_freq == 0:
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -586,8 +439,6 @@ def test(testloader, model, criterion, epoch, use_cuda):
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                     batch_idx, len(testloader), batch_time=batch_time, loss=losses,
                     top1=top1, top5=top5))
-        #     bar.next()
-        # bar.finish()
 
     print(' * Prec@1 {top1.avg:.3f}\t'
           ' * Prec@5 {top5.avg:.3f}'
@@ -638,6 +489,16 @@ def get_L2norm_loss_self_driven(x):
 
     return args.weight_L2norm * l
 
+
+def compute_weight_cosine(model):
+    weight = model.module.classifier.weight.data.cpu()
+    weight_norm = weight.norm(dim=1, keepdim=True)
+    weight = weight / weight_norm
+
+    cosine_similarity = torch.matmul(weight, weight.t()).tril(diagonal=-1)
+    mean_cosine_similarity = cosine_similarity.sum() / ((weight.size(0) * (weight.size(0) - 1.0)) / 2.0)
+
+    return mean_cosine_similarity, cosine_similarity.max(), weight_norm
 
 if __name__ == '__main__':
     main()
