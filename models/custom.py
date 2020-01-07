@@ -332,253 +332,34 @@ class Conv2dPR_Detach(nn.Conv2d):
 
 class LinearNorm(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=True, eps=1e-8, v=16.0):
+    def __init__(self, in_features, out_features, bias=True, eps=1e-8):
         super(LinearNorm, self).__init__(in_features, out_features, bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
         self.eps = eps
         self.lens = nn.Parameter(torch.ones(out_features, 1))
-        self.in_features = in_features
         self.x = []
-        self.feature_len = []
-        self.bias_ = self.weight.data.new_full((1, 1), _scale_linear)
-        self.register_buffer('_bias', torch.zeros_like(self.bias.data))
+        self.g = nn.Parameter(torch.ones(out_features, 1))
 
-        if _normlinear == '3-1' or _normlinear is None:
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-        if _normlinear == '3-5':
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-            self.weight.register_hook(lambda grad: self.lens/self.g*grad)
-        elif _normlinear == '3-2':
-            self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '3-3' or _normlinear == '3-8':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad/out_features)
-        elif _normlinear == '3-4':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad/math.sqrt(out_features))
-        elif _normlinear == '3-6':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad / math.sqrt(out_features))
-            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
-        elif _normlinear == '3-7':
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-        elif _normlinear == '3-9':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad / out_features)
-            self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
-        elif _normlinear == '3-10':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad / out_features)
-            # self.weight.register_hook(lambda grad: self.lens / torch.abs(self.g) * grad)
-            self.register_backward_hook(self.x_grad_hook)
-        elif _normlinear == '3-11':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.g.register_hook(lambda grad: grad / out_features)
-            # self.weight.register_hook(lambda grad: ((self.lens / torch.abs(self.g))**2)*grad)
-            self.register_backward_hook(self.x_grad_hook)
-        elif _normlinear == '4' or _normlinear == '7':
-            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-        elif _normlinear == '5-1':
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-            self.v = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '5-2':
-            self.g = nn.Parameter(torch.ones(1, 1))
-            self.v = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '8':
-            self.g = nn.Parameter(torch.ones(1, 1))
-        elif _normlinear == '9' or _normlinear == '10' or _normlinear == '11' or _normlinear == '11-1' or _normlinear == '12' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-1' or _normlinear == '13-2' or _normlinear == '13-3':
-            # self.v = _scale_linear
-            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-
-            if _normlinear == '9-1' or _normlinear == '9-3' or _normlinear == '13-3' or _normlinear == '11-1':
-                self.weight.register_hook(lambda grad: self.lens * grad)
-
-            # if _normlinear == '13-1' or _normlinear == '13-3':
-            #     self.register_backward_hook(self.x_grad_hook)
-
-            if _normlinear == '10' or _normlinear == '11' or _normlinear == '11-1' or _normlinear == '12':
-                self.BN = nn.BatchNorm1d(in_features, affine=False)
-
-        elif _normlinear == '16':
-            # self.v = _scale_linear
-            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-
-        elif _normlinear == '17':
-            self.g = nn.Parameter(torch.ones(out_features, 1))
+        if _normlinear == '17':
             self.weight.register_hook(lambda grad: self.lens * grad)
 
-        elif _normlinear == '18':
-            self.g = nn.Parameter(torch.ones(out_features, 1))
-
-    def x_grad_hook(self, m, grad_input, grad_output):
-        '''
-        rewrite the gradient of this module's input
-        :param m: this module
-        :param grad_input: a 3 element tuble: grad_input[0] is bias's grad with shpe of (100,),
-        grad_input[1] is x's grad with shape of (128, 512), grad_input[2] is w's grad with shape of (512, 100)
-        :param grad_output: (128,100), that is the grad of cross-entropy loss w.r.t. this module's output, which is just (pm-qm)
-        :return: none or changed version of grad_input
-        '''
-
-        print (m)
-        print (grad_input[0].shape)
-        print (grad_input[1].shape)
-        print (grad_output[0].shape)
-
-        # grad_input_list = list(grad_input)
-
-        # # the grad of weight
-        # grad_input_list[2] = self.lens.t() / torch.abs(self.g.t()) * (grad_input_list[2])
-
-        # # the grad of weight
-        # grad_input_list[2] = ((self.lens.t() / torch.abs(self.g.t()))**2) * (grad_input_list[2])
-
-        # the grad of x
-        # grad_input_list[1] = grad_input_list[1]*((self.feature_len[0]/self.v)**2)         # / self.v
-        # grad_input_list[1] = grad_input_list[1] / self.v
-        # grad_input_list[1] = (grad_output[0].matmul(self.weight/self.lens)) * self.v / self.feature_len[0]
-        # aa = grad_input_list[1] - (grad_output[0].matmul(self.weight / self.lens)) #* self.v / self.feature_len[0]
-
-        # aa = grad_input_list[2] - self.x[0].t().matmul(grad_output[0])      #/self.lens.t()
-        #
-        # print (aa)
-
-        # # rewrite the grad of weight
-        # grad_input_list[2] = self.x[0].t().matmul(grad_output[0])
-
-        # # rewrite the grad of weight
-        # grad_input_list[2] = self.x[0].t().matmul(grad_output[0])*(self.lens.t() / torch.abs(self.g.t()))
-
-        # grad_input_ = tuple(grad_input_list)
-
-        # return grad_input_
-
     def forward(self, x):
-
-        self._bias = self.bias.data
-
+        # weigth length
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
         self.lens.data = lens.data
 
-        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-        self.feature_len = []
-        self.feature_len.append(feature_len.data)
-
-        if _normlinear == '1':
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear == '2':
-            x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight
-
-        elif _normlinear == '3-1' or _normlinear == '3-2' or _normlinear == '3-3' or _normlinear == '3-4' or _normlinear == '3-5' \
-                or _normlinear == '3-6' or _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10' or _normlinear == '3-11':
-            # if _normlinear == '3-8' or _normlinear == '3-9' or _normlinear == '3-10' or _normlinear == '3-11':
-            #     lens_ = lens.detach()
-            # else:
-            #     lens_ = lens
-
-            weight = torch.abs(self.g) * self.weight / lens  # out_feature*in_features
-
-        elif _normlinear == '3-7':
-            gi = torch.abs(self.g)
-            a = x.matmul(torch.t(self.weight / lens))
-
-            out = linear_norm37(gi, a, x)
-
-            if self.bias is not None:
-                out = out + self.bias
-
-            return out
-
-        elif _normlinear == '4':
-            x_ = self.v * x / feature_len  # batch*512
-            weight = self.weight
-            self.g.data = lens.data
-
-        elif _normlinear == '5-1' or _normlinear == '5-2':
-            weight = torch.abs(self.g) * self.weight / torch.sqrt(
-                (self.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=self.eps))  # out_feature*in_features
-            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-
-        elif _normlinear == '6':
-            x = x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear == '7':
-            x = torch.abs(self.v) * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-            weight = self.weight / lens  # out_feature*1
-
-        elif _normlinear == '8':
-            weight = lens.mean(dim=0, keepdim=True) * self.weight / lens
-            self.g.data = lens.mean(dim=0, keepdim=True)
-
-        elif _normlinear == '9' or _normlinear == '9-1' or _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-1' or _normlinear == '13-2' or _normlinear == '13-3':
-
-            # if _normlinear == '13-2' or _normlinear == '13-3':
-            #     feature_len_ = feature_len.detach()
-            # else:
-            #     feature_len_ = feature_len
-
-            x_ = self.v * x / feature_len       # batch*512
-
-            if _normlinear == '9-2' or _normlinear == '9-3' or _normlinear == '13-3':
-                lens_ = lens.detach()
-            else:
-                lens_ = lens
-
-            weight = self.weight / lens_  # out_feature*512
-
-        elif _normlinear == '16':
-            x_ = self.v * x / feature_len
-            self.x = []
-            self.x.append(x_)
-
-            return linear_norm16(x, self.weight, self.bias, self.v, self.eps)
-
-        elif _normlinear == '17':
+        if _normlinear == '17':
             x_ = x
             weight = self.weight / (lens.detach())  # out_feature*512
-            # self.g.data = lens.data
-
-
-        # elif _normlinear == '10':
-        #     x = self.BN(x)/(self.in_features**0.5)
-        #     x = self.v * x  # batch*1
-        #     weight = self.weight / lens  # out_feature*1
-        #
-        elif _normlinear == '11' or _normlinear == '11-1':
-            x = self.BN(x)
-            x_ = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-
-            if _normlinear == '11-1':
-                lens_ = lens.detach()
-            else:
-                lens_ = lens
-
-            weight = self.weight / lens_  # out_feature*1
-        #
-        # elif _normlinear == '12':
-        #     x = self.BN(x) / (self.in_features ** 0.5)
-        #     x = self.v * x / torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-        #     weight = self.weight / lens  # out_feature*1
-        #
-        elif _normlinear  == '18':
-            weight = self.weight.detach()
-            x_ = x
-            self.g.data = lens.data
 
         elif _normlinear is None:
             weight = self.weight
             x_ = x
             self.g.data = lens.data
-        #
-        # else:
-        #     raise AssertionError('_norm is not valid!')
+
+        else:
+            raise AssertionError('_norm is not valid!')
 
         self.x = []
         self.x.append(x_)
@@ -872,3 +653,76 @@ linear_norm16 = Linear_Norm16.apply
 # print(ori_conv_out.min(), ori_conv_out.max())
 # print(cus_conv_out.min(), cus_conv_out.max())
 
+
+##################################  Arcface #############################################################
+
+class ArcLinear(nn.Linear):
+    # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
+    def __init__(self, in_features, out_features, bias=False, eps=1e-8, m=1.0, detach_diff=True, m_mode='fix'):
+        super(ArcLinear, self).__init__(in_features, out_features, bias)
+        # self.register_buffer('eps', torch.tensor(eps))
+
+        self.eps = eps
+        self.lens = nn.Parameter(torch.ones(out_features, 1))
+        self.x = []
+        self.feature_len = []
+
+        self.detach_diff = detach_diff
+        self.m_mode = m_mode
+        self.m = m # the margin value, default is 0.5
+
+        self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
+        self.g = nn.Parameter(torch.ones(out_features, 1))
+
+    def forward(self, embbedings, label):
+        # weight　norm
+        weight_lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
+        self.lens.data = weight_lens.data
+        weight = self.weight / weight_lens  # out_feature*512
+
+        # feature　norm
+        feature_len = torch.sqrt(embbedings.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+        self.feature_len = []
+        self.feature_len.append(feature_len.data)
+        x_ = embbedings / feature_len  # batch*512
+
+        nB = len(embbedings)    # Batchsize
+
+        # costheta
+        cos_theta = torch.mm(x_, weight.t())     # B x class_num#
+        cos_theta = cos_theta.clamp(-1, 1) # for numerical stability     # B x class_num
+        # pick the labeled cos theta
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        labeled_cos = cos_theta[idx_, label]            # B
+        # compute labeled theta
+        labeled_theta = torch.acos(labeled_cos)         # B
+        #compute the added margin
+        m = self.get_m(labeled_theta)
+        # add margin
+        labeled_theta += m                         # B
+        labeled_theta.clamp_(max=math.pi)
+        # compute the diff and expand it
+        labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
+        diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.classnum)  # B x class_num
+        if self.detach_diff:
+            diff_expand.detach_()
+        # add diff and multiply the scale
+        output = cos_theta * 1.0 + diff_expand                     # B x class_num
+        output *= self.v
+
+        self.x = []
+        self.x.append(self.v * x_)
+
+        return output, cos_theta
+
+    def get_m(self, theta):
+        if self.m_mode == 'larger':
+            m = self.m * theta / math.pi
+        elif self.m_mode == 'smaller':
+            m = self.m -theta * self.m / math.pi
+        elif self.m_mode == 'fix':
+            m = self.m
+        elif self.m_mode == 'larger_sqrt':
+            m = self.m * torch.sqrt(theta)
+
+        return m.detach_()
