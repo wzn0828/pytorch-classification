@@ -13,8 +13,12 @@ _normconv2d = None
 _coeff = True
 _scale_linear = 16.0
 
-def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None, coeff=True, scale_linear=16.0):
+_m = 1.0
+_detach_diff = True
+_m_mode = 'fix'
 
+def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
+                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix'):
     global Linear_Class
     Linear_Class = linear
 
@@ -43,6 +47,18 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _scale_linear
     if scale_linear is not None:
         _scale_linear = scale_linear
+
+    global _detach_diff
+    if detach_diff is not None:
+        _detach_diff = detach_diff
+
+    global _m
+    if margin is not None:
+        _m = margin
+
+    global _m_mode
+    if m_mode is not None:
+        _m_mode = m_mode
 
 
 class Linear(nn.Linear):
@@ -566,9 +582,6 @@ class Linear_Norm37(torch.autograd.Function):
 linear_norm37 = Linear_Norm37.apply
 
 
-
-
-
 class Linear_Norm16(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, weight, bias, v, eps=1e-8):
@@ -627,7 +640,6 @@ class Linear_Norm16(torch.autograd.Function):
 linear_norm16 = Linear_Norm16.apply
 
 
-
 # # test code
 # torch.manual_seed(123)
 # ori_linear = nn.Linear(512, 1024)
@@ -654,75 +666,79 @@ linear_norm16 = Linear_Norm16.apply
 # print(cus_conv_out.min(), cus_conv_out.max())
 
 
-##################################  Arcface #############################################################
+##################################  ArcClassify #############################################################
 
-class ArcLinear(nn.Linear):
+class ArcClassify(nn.Linear):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, in_features, out_features, bias=False, eps=1e-8, m=1.0, detach_diff=True, m_mode='fix'):
-        super(ArcLinear, self).__init__(in_features, out_features, bias)
+    def __init__(self, in_features, out_features, bias=False, eps=1e-8):
+        super(ArcClassify, self).__init__(in_features, out_features, bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
         self.eps = eps
+        self.out_features = out_features
+
         self.lens = nn.Parameter(torch.ones(out_features, 1))
         self.x = []
-        self.feature_len = []
 
-        self.detach_diff = detach_diff
-        self.m_mode = m_mode
-        self.m = m # the margin value, default is 0.5
+        self.detach_diff = _detach_diff
+        self.m_mode = _m_mode
+        self.m = _m # the margin value, default is 0.5
 
         self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
         self.g = nn.Parameter(torch.ones(out_features, 1))
 
     def forward(self, embbedings, label):
-        # weight　norm
-        weight_lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))   # out_feature*1
+        # weight norm
+        weight_lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
         self.lens.data = weight_lens.data
         weight = self.weight / weight_lens  # out_feature*512
 
-        # feature　norm
+        # feature norm
         feature_len = torch.sqrt(embbedings.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
-        self.feature_len = []
-        self.feature_len.append(feature_len.data)
         x_ = embbedings / feature_len  # batch*512
 
-        nB = len(embbedings)    # Batchsize
-
         # costheta
-        cos_theta = torch.mm(x_, weight.t())     # B x class_num#
-        cos_theta = cos_theta.clamp(-1, 1) # for numerical stability     # B x class_num
-        # pick the labeled cos theta
-        idx_ = torch.arange(0, nB, dtype=torch.long)
-        labeled_cos = cos_theta[idx_, label]            # B
-        # compute labeled theta
-        labeled_theta = torch.acos(labeled_cos)         # B
-        #compute the added margin
-        m = self.get_m(labeled_theta)
-        # add margin
-        labeled_theta += m                         # B
-        labeled_theta.clamp_(max=math.pi)
-        # compute the diff and expand it
-        labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
-        diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.classnum)  # B x class_num
-        if self.detach_diff:
-            diff_expand.detach_()
-        # add diff and multiply the scale
-        output = cos_theta * 1.0 + diff_expand                     # B x class_num
-        output *= self.v
+        cos_theta = torch.mm(x_, weight.t())  # B x class_num#
+        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
         self.x.append(self.v * x_)
+
+        if not self.training:
+            output = cos_theta * 1.0           # B x class_num
+            output *= self.v
+        else:
+            nB = len(embbedings)    # Batchsize
+
+            # pick the labeled cos theta
+            idx_ = torch.arange(0, nB, dtype=torch.long)
+            labeled_cos = cos_theta[idx_, label]            # B
+            # compute labeled theta
+            labeled_theta = torch.acos(labeled_cos)         # B
+            #compute the added margin
+            m = self.get_m(labeled_theta)
+            # add margin
+            labeled_theta += m                         # B
+            labeled_theta.clamp_(max=math.pi)
+            # compute the diff and expand it
+            labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
+            diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)  # B x class_num
+            if self.detach_diff:
+                diff_expand.detach_()
+            # add diff and multiply the scale
+            output = cos_theta * 1.0 + diff_expand                     # B x class_num
+            output *= self.v
 
         return output, cos_theta
 
     def get_m(self, theta):
         if self.m_mode == 'larger':
-            m = self.m * theta / math.pi
+            m = (self.m * theta / math.pi).detach()
         elif self.m_mode == 'smaller':
-            m = self.m -theta * self.m / math.pi
+            m = (self.m -theta * self.m / math.pi).detach()
         elif self.m_mode == 'fix':
             m = self.m
         elif self.m_mode == 'larger_sqrt':
-            m = self.m * torch.sqrt(theta)
+            m = (self.m * torch.sqrt(theta)).detach()
 
-        return m.detach_()
+        return m

@@ -96,14 +96,10 @@ args.gpu_id = '0'
 
 args.dataset = 'cifar100'
 args.arch = 'vgg19_bn'
-# args.weight_decay = 0
-args.init_ave_length = False
-args.average_length = False
-args.average_fc_length = False
-args.average_fc_g = False
-set_gl_variable(linear=LinearNorm, normlinear='18')
-args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_norm-l18'
+set_gl_variable(linear=ArcClassify, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix')
+args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_arc-s16-m0'
 
+args.ring_loss = False
 args.normlosstype = 'SmoothL1'     # 'L2',  'SmoothL1', 'SAFN' , 'L1'
 args.feature_radius = 16.0
 args.weight_L2norm = 0.01
@@ -305,12 +301,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         data_time.update(time.time() - end)
 
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda(async=True)
-        inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
-
+            inputs, targets = inputs.cuda(), targets.cuda()
+        # inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
-        outputs, cosine, features = model(inputs)
+        outputs, features = model(inputs, targets)
+        outputs, cosine = outputs
         loss = criterion(outputs, targets)
 
         # measure accuracy and record loss
@@ -320,9 +316,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         top5.update(prec5.item(), inputs.size(0))
 
         # larger norm more transferable: SAFN
-        if custom._normlinear is not None and custom._normlinear == '17':
-            if epoch > 100:
-                args.feature_radius = 4.0
+        if args.ring_loss:
             feature_L2norm_loss = get_L2norm_loss_self_driven(features)
             losses_norm.update(feature_L2norm_loss.item(), inputs.size(0))
             loss = loss + feature_L2norm_loss
@@ -351,8 +345,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
-    add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
-    tb_summary_writer.add_histogram('Hists/fc_bias', model.module.classifier.bias, epoch)
+    if model.module.classifier.bias is not None:
+        add_summary_value(tb_summary_writer, 'fc_bias[0]', model.module.classifier.bias[0], epoch)
+        tb_summary_writer.add_histogram('Hists/fc_bias', model.module.classifier.bias, epoch)
 
     # compute the cosine of classify layer
     tb_summary_writer.add_histogram('Cosine/', cosine, epoch)
@@ -418,7 +413,8 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs, cosine, features = model(inputs)
+            outputs, features = model(inputs, targets)
+            outputs, cosine = outputs
             loss = criterion(outputs, targets)
 
             # measure accuracy and record loss
