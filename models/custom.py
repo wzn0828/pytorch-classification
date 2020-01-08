@@ -384,6 +384,10 @@ class LinearNorm(nn.Linear):
             x_ = x
             weight = self.weight / (lens.detach())  # out_feature*512
 
+        elif _normlinear == '20':
+            x_ = x
+            weight = self.weight / lens  # out_feature*512
+
         elif _normlinear is None:
             weight = self.weight
             x_ = x
