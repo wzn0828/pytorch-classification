@@ -699,7 +699,8 @@ class ArcClassify(nn.Linear):
         self.m_mode = _m_mode
         self.m = _m # the margin value, default is 0.5
 
-        self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
+        # self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
+        self.v = _scale_linear
         self.g = nn.Parameter(torch.ones(out_features, 1))
 
     def forward(self, embbedings, label):
@@ -719,7 +720,7 @@ class ArcClassify(nn.Linear):
         self.x = []
         self.x.append(self.v * x_)
 
-        if not self.training:
+        if not self.training or self.m==0.0:
             output = cos_theta * 1.0           # B x class_num
             output *= self.v
         else:
