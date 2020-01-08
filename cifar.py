@@ -256,6 +256,9 @@ def main():
         add_summary_value(tb_summary_writer, 'learning_rate', state['lr'], epoch + 1)
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
+        if args.scale_change and epoch > args.scale_change_epoch:
+            model.module.classifier.v = args.scale_second
+
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 
         lr_scheduler.step(epoch+1)
