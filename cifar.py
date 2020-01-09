@@ -320,6 +320,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
 
         # larger norm more transferable: SAFN
         if args.ring_loss:
+            if args.rl_change and epoch > args.rl_change_epoch:
+                args.feature_radius = args.rl_second_radius
+                args.weight_L2norm = args.rl_second_weight
             feature_L2norm_loss = get_L2norm_loss_self_driven(features)
             losses_norm.update(feature_L2norm_loss.item(), inputs.size(0))
             loss = loss + feature_L2norm_loss
