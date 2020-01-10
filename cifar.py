@@ -257,7 +257,7 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         if args.scale_change and epoch > args.scale_change_epoch:
-            model.module.classifier.v = args.scale_second
+            model.module.classifier.scale_small = args.scale_second
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 

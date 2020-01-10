@@ -12,6 +12,8 @@ _normlinear = None
 _normconv2d = None
 _coeff = True
 _scale_linear = 16.0
+_scale_large = 16.0
+_scale_small = 4.0
 
 _m = 1.0
 _detach_diff = True
@@ -20,7 +22,7 @@ _m_mode = 'fix'
 _bias = True
 
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
-                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True):
+                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True, scale_large=16.0, scale_small=4.0):
     global Linear_Class
     Linear_Class = linear
 
@@ -65,6 +67,14 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _bias
     if bias is not None:
         _bias = bias
+
+    global _scale_large
+    if scale_large is not None:
+        _scale_large = scale_large
+
+    global _scale_small
+    if scale_small is not None:
+        _scale_small = scale_small
 
 
 class Linear(nn.Linear):
@@ -762,3 +772,59 @@ class ArcClassify(nn.Linear):
             m = (self.m * torch.sqrt(theta)).detach()
 
         return m
+
+
+##################################  HeatedupClassify #############################################################
+
+
+class HeatedupClassify(nn.Linear):
+
+    def __init__(self, in_features, out_features, bias=False, eps=1e-8):
+        super(HeatedupClassify, self).__init__(in_features, out_features, bias)
+        # self.register_buffer('eps', torch.tensor(eps))
+
+        self.eps = eps
+
+        self.lens = nn.Parameter(torch.ones(out_features, 1))
+        self.x = []
+
+        self.scale_large = _scale_large
+        self.scale_small = _scale_small
+        self.g = nn.Parameter(torch.ones(out_features, 1))
+
+    def forward(self, x, label):
+
+        # weight length
+        lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
+        self.lens.data = lens.data
+
+        # feature norm
+        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+
+        # compute costheta
+        weight = self.weight / lens  # out_feature*512
+        normalized_x = x / feature_len
+        cos_theta = torch.mm(normalized_x, weight.t())  # B x class_num#
+        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
+
+        # --- adaptive feature normalization --- #
+        # identify the classified wrong and right
+        if self.scale_large == self.scale_small:
+            scale = self.scale_large
+        else:
+            arg_max = cos_theta.argmax(dim=1)
+            right = arg_max == label
+
+            scale = self.weight.new_ones(label.size())
+            scale[right] = self.scale_small
+            scale[right==False] = self.scale_large
+            scale.unsqueeze_(dim=1)
+
+        x_ = scale * normalized_x  # batch*512
+
+        self.x = []
+        self.x.append(x_)
+
+        return F.linear(x_, weight, self.bias), cos_theta
+
+
