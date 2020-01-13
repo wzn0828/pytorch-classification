@@ -21,8 +21,11 @@ _m_mode = 'fix'
 
 _bias = True
 
+_feature_BN = False
+
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
-                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True, scale_large=16.0, scale_small=4.0):
+                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True,
+                    scale_large=16.0, scale_small=4.0, feature_BN=False):
     global Linear_Class
     Linear_Class = linear
 
@@ -75,6 +78,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _scale_small
     if scale_small is not None:
         _scale_small = scale_small
+
+    global _feature_BN
+    if feature_BN is not None:
+        _feature_BN = feature_BN
 
 
 class Linear(nn.Linear):
@@ -717,7 +724,14 @@ class ArcClassify(nn.Linear):
         self.v = _scale_linear
         self.g = nn.Parameter(torch.ones(out_features, 1))
 
+        if _feature_BN:
+            self.feature_BN = nn.BatchNorm1d(in_features, affine=False)
+
     def forward(self, embbedings, label):
+
+        if _feature_BN:
+            embbedings = self.feature_BN(embbedings)
+
         # weight norm
         weight_lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
         self.lens.data = weight_lens.data
