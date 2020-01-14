@@ -23,9 +23,11 @@ _bias = True
 
 _feature_BN = False
 
+_only_margin_right = False
+
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
                     coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True,
-                    scale_large=16.0, scale_small=4.0, feature_BN=False):
+                    scale_large=16.0, scale_small=4.0, feature_BN=False, only_margin_right=False):
     global Linear_Class
     Linear_Class = linear
 
@@ -82,6 +84,10 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     global _feature_BN
     if feature_BN is not None:
         _feature_BN = feature_BN
+
+    global _only_margin_right
+    if only_margin_right is not None:
+        _only_margin_right = only_margin_right
 
 
 class Linear(nn.Linear):
@@ -724,6 +730,8 @@ class ArcClassify(nn.Linear):
         self.v = _scale_linear
         self.g = nn.Parameter(torch.ones(out_features, 1))
 
+        self.only_margin_right = _only_margin_right
+
         if _feature_BN:
             self.feature_BN = nn.BatchNorm1d(in_features, affine=False)
 
@@ -761,6 +769,8 @@ class ArcClassify(nn.Linear):
             labeled_theta = torch.acos(labeled_cos)         # B
             #compute the added margin
             m = self.get_m(labeled_theta)
+            if self.only_margin_right:
+                m *= (cos_theta.argmax(dim=1)==label).to(torch.float)
             # add margin
             labeled_theta += m                         # B
             labeled_theta.clamp_(max=math.pi)
