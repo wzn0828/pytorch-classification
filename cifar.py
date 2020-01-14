@@ -260,6 +260,9 @@ def main():
             model.module.classifier.scale_small = args.scale_second_small
             model.module.classifier.scale_large = args.scale_second_large
 
+        if args.margin_change and epoch > args.margin_change_epoch:
+            model.module.classifier.m = args.margin_second
+
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 
         lr_scheduler.step(epoch+1)
