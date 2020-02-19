@@ -411,6 +411,12 @@ class LinearNorm(nn.Linear):
             x_ = x
             weight = self.weight / lens  # out_feature*512
 
+        #　fix the classifier
+        elif _normlinear == '21':
+            weight = self.weight.detach()
+            x_ = x
+            self.g.data = lens.data
+
         elif _normlinear is None:
             weight = self.weight
             x_ = x

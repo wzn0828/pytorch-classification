@@ -211,6 +211,13 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=args.num_classes)
 
+
+    # initialize the g of weight normalization
+    if custom._normlinear and custom._normlinear == '21':
+        weight = model.classifier.weight.data
+        weight_norm = weight.norm(dim=1, keepdim=True)
+        model.classifier.weight.data = weight / weight_norm
+
     model = torch.nn.DataParallel(model).cuda()
 
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
