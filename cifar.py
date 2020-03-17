@@ -221,7 +221,13 @@ def main():
     model = torch.nn.DataParallel(model).cuda()
 
     print('    Total params: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
-    criterion = nn.CrossEntropyLoss()
+
+    # create loss function
+    if args.loss_type == 'softmax':
+        criterion = nn.CrossEntropyLoss()
+    else:
+        criterion = similarity_loss
+
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
     # Resume
@@ -321,7 +327,10 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         # compute output
         outputs, features = model(inputs, targets)
         outputs, cosine = outputs
-        loss = criterion(outputs, targets)
+        if args.loss_type == 'softmax':
+            loss = criterion(outputs, targets)
+        else:
+            loss = criterion(cosine, targets)
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
@@ -432,7 +441,11 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # compute output
             outputs, features = model(inputs, targets)
             outputs, cosine = outputs
-            loss = criterion(outputs, targets)
+
+            if args.loss_type == 'softmax':
+                loss = criterion(outputs, targets)
+            else:
+                loss = criterion(cosine, targets)
 
             # measure accuracy and record loss
             prec1, prec5 = accuracy(outputs.data, targets.data, topk=(1, 5))
@@ -512,6 +525,20 @@ def compute_weight_cosine(model):
     mean_cosine_similarity = cosine_similarity.sum() / ((weight.size(0) * (weight.size(0) - 1.0)) / 2.0)
 
     return mean_cosine_similarity, cosine_similarity.max(), weight_norm
+
+def similarity_loss(cosine, label):
+    nB = len(cosine)  # Batchsize
+
+    # pick the labeled cos theta
+    idx_ = torch.arange(0, nB, dtype=torch.long)
+    labeled_cos = cosine[idx_, label]  # B
+    if args.loss_type == 'cosine':
+        return (labeled_cos - 1.0).pow(2).mean()
+    elif args.loss_type == 'theta':
+        labeled_theta = torch.acos(labeled_cos)  # B
+        return labeled_theta.pow(2).mean()
+    else:
+        return 0
 
 if __name__ == '__main__':
     main()
