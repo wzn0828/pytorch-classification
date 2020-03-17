@@ -398,11 +398,6 @@ class LinearNorm(nn.Linear):
         # feature norm
         feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
-        # costheta
-        cos_theta = torch.mm(x / feature_len, (self.weight / lens).t())  # B x class_num#
-        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
-
-
         if _normlinear == '17':
             x_ = x
             weight = self.weight / (lens.detach())  # out_feature*512
@@ -424,6 +419,10 @@ class LinearNorm(nn.Linear):
 
         else:
             raise AssertionError('_norm is not valid!')
+
+        # costheta
+        cos_theta = torch.mm(x / feature_len, weight.t())  # B x class_num#
+        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
         self.x.append(x_)
