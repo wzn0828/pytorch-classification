@@ -532,11 +532,30 @@ def similarity_loss(cosine, label):
     # pick the labeled cos theta
     idx_ = torch.arange(0, nB, dtype=torch.long)
     labeled_cos = cosine[idx_, label]  # B
+
+    if args.loss_margin != 0:
+        labeled_theta = torch.acos(labeled_cos)  # B
+
+        if args.loss_only_margin_right == True:
+            loss_margin = args.loss_margin * (cosine.argmax(dim=1) == label).to(torch.float)
+        else:
+            loss_margin = args.loss_margin
+
+        labeled_theta += loss_margin
+        labeled_theta.clamp_(max=math.pi)
+
+        if args.loss_type == 'cosine':
+            labeled_cos = torch.cos(labeled_theta)
+
     if args.loss_type == 'cosine':
         return (labeled_cos - 1.0).pow(2).mean()
+
     elif args.loss_type == 'theta':
-        labeled_theta = torch.acos(labeled_cos)  # B
+        if args.loss_margin == 0:
+            labeled_theta = torch.acos(labeled_cos)  # B
+
         return labeled_theta.pow(2).mean()
+
     else:
         return 0
 
