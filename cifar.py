@@ -10,6 +10,8 @@ import shutil
 import time
 import random
 
+import numpy as np
+
 import torch
 import sys
 torch.set_printoptions(threshold=sys.maxsize)
@@ -211,9 +213,12 @@ def main():
     else:
         model = models.__dict__[args.arch](num_classes=args.num_classes)
 
+    # load classify weight
+    if args.classify_weight_load:
+        model.classifier.weight.data = torch.tensor(np.load(args.classify_weight_path))
 
     # initialize the g of weight normalization
-    if custom._normlinear and custom._normlinear == '21':
+    if custom._normlinear and custom._normlinear in ['21', '22']:
         weight = model.classifier.weight.data
         weight_norm = weight.norm(dim=1, keepdim=True)
         model.classifier.weight.data = weight / weight_norm
