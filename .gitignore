@@ -9,6 +9,7 @@ monitor.py
 exp
 .idea/
 Experiments
+ConfusionMatrixToWeightMatrix/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -18,7 +18,7 @@ import torchvision.datasets as datasets
 import models.cifar as models
 from models.custom import *
 
-from utils import  AverageMeter, accuracy
+from utils import AverageMeter, accuracy
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/100 Training')
@@ -27,11 +27,11 @@ args = parser.parse_args()
 # ------local config------ #
 args.gpu_id = '0'
 
-args.generate_CM = True
+args.generate_CM = False
 
 args.dataset = 'cifar100'
 args.workers = 4
-args.train_batch = 128
+args.batch = 128
 args.data_path = '/home/wzn/Datasets/Classification'
 args.parapath = '../Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_norm-none-2/model_best.pth.tar'
 
@@ -43,7 +43,14 @@ args.scale_change = False
 args.scale_second_large = 4.0
 args.scale_second_small = 16.0
 
-args.CMsavepath = 'ConfusionMatrixToWeightMatrix/cifar100_vgg19bn.npy'
+args.CMsavepath = '../ConfusionMatrixToWeightMatrix/cifar100_vgg19bn_test.npy'
+
+args.generate_weight_bycosine = False
+args.generate_weight_bytheta = True
+args.min_theta = 30.
+args.max_theta = 90.
+args.cosineSavePath = '../ConfusionMatrixToWeightMatrix/cifar100_vgg19bn_test_cosine.npy'
+args.weightSavePath = '../ConfusionMatrixToWeightMatrix/cifar100_vgg19bn_test_weight.npy'
 
 args.print_freq = 50
 # ------local config------ #
@@ -60,6 +67,10 @@ def main():
     global args
     if args.generate_CM == True:
         generate_confusion_matrix()
+    if args.generate_weight_bycosine == True:
+        generate_weight_bycosine()
+    if args.generate_weight_bytheta == True:
+        generate_weight_bytheta()
 
 def generate_confusion_matrix():
     global args
@@ -74,8 +85,8 @@ def generate_confusion_matrix():
     else:
         dataloader = datasets.CIFAR100
         args.num_classes = 100
-    trainset = dataloader(root=args.data_path, train=True, download=True, transform=transform)
-    trainloader = data.DataLoader(trainset, batch_size=args.train_batch, shuffle=False, num_workers=args.workers)
+    dataset = dataloader(root=args.data_path, train=False, download=True, transform=transform)
+    dataloader = data.DataLoader(dataset, batch_size=args.batch, shuffle=False, num_workers=args.workers)
     # Model
     print("==> creating model '{}'".format(args.arch))
     if args.arch.startswith('resnext'):
@@ -114,16 +125,105 @@ def generate_confusion_matrix():
     # 　load model parameters
     print('==>Load model parameters..')
     assert os.path.isfile(args.parapath), 'Error: no model parameter directory found!'
-    checkpoint = torch.load(args.resume)
+    checkpoint = torch.load(args.parapath)
     model.load_state_dict(checkpoint['state_dict'])
     # Generate the Confusion Matrix
-    target, pred = test(trainloader, model, use_cuda)
+    target, pred = test(dataloader, model, use_cuda)
     CM = confusion_matrix(target, pred)
     np.save(args.CMsavepath, CM)
 
-def generate_cosinesimilar_matrix():
+
+def generate_weight_bycosine():
+
     global args
-    pass
+
+    # load　confusion matrix
+    CM = np.load(args.CMsavepath)
+    CM = torch.tensor(CM).float()
+
+    # normalization
+    CM = CM + CM.t()
+    diag = torch.diagonal(CM).unsqueeze(dim=1).float()
+    CM = CM / diag
+
+    diagOfCM = torch.diag(torch.diag(CM))
+    CM_except_diag = CM - diagOfCM
+
+    # mapping to cosine similarity:
+    # except the diagonal elements,
+    # the maximum mapped to s, which is a hyperparameter; and the minimum mapped to -1
+    max_cosine = math.cos(args.min_theta / 180.0 * math.pi)
+    min_cosine = math.cos(args.max_theta / 180.0 * math.pi)
+
+    max_CM = CM_except_diag.max()
+    min_CM = CM.min()
+
+    cosine = (CM_except_diag-min_CM)/ (max_CM - min_CM) * (max_cosine - min_cosine) + min_cosine
+    cosine = cosine - torch.diag(torch.diag(cosine)) + torch.eye(CM.size(0))
+    cosine = cosine.clamp(-1, 1)
+
+    # save
+    # np.save(args.cosineSavePath, cosine)
+
+    # eigendecomposition
+    e, v = torch.symeig(cosine, eigenvectors=True)
+
+    print(e)
+
+
+def generate_weight_bytheta():
+
+    global args
+
+    # load　confusion matrix
+    CM = np.load(args.CMsavepath)
+    CM = torch.tensor(CM).float()
+
+    # normalization
+    CM = CM + CM.t()
+    diag = torch.diagonal(CM).unsqueeze(dim=1).float()
+    CM = CM / diag
+
+    diagOfCM = torch.diag(torch.diag(CM))
+    CM_except_diag = CM - diagOfCM
+
+    # mapping to cosine similarity:
+    # except the diagonal elements,
+    # the maximum mapped to s, which is a hyperparameter; and the minimum mapped to -1
+    # max_cosine = math.cos(args.min_theta / 180.0 * math.pi)
+    # min_cosine = math.cos(args.max_theta / 180.0 * math.pi)
+
+    max_CM = CM_except_diag.max()
+    min_CM = CM.min()
+
+    theta = (max_CM - CM_except_diag) / (max_CM-min_CM) * (args.max_theta-args.min_theta) + args.min_theta
+    cosine = torch.cos(theta/180.*math.pi)
+
+    cosine = torch.round(cosine*1000)/1000
+
+    cosine = cosine - torch.diag(torch.diag(cosine)) + torch.eye(CM.size(0))
+    cosine = cosine.clamp(-1, 1)
+
+    # save
+    np.save(args.cosineSavePath, cosine)
+
+    # using svd, as eigendecomposition is not so precise
+    u, s, v = torch.svd(cosine)
+    print(s)
+
+    p = (u + v) / 2.0
+    weight = torch.matmul(p, s.sqrt().diag())
+    weight = weight / weight.norm(p=2, dim=1, keepdim=True)
+
+    # save
+    np.save(args.weightSavePath, weight.numpy())
+
+    aa = torch.matmul(weight, weight.t())
+    diff = aa - cosine
+    print(diff.max(), diff.min())
+
+    print(weight.norm(dim=1))
+
 
 def test(testloader, model, use_cuda):
     global best_acc
