@@ -218,7 +218,7 @@ def main():
         model.classifier.weight.data = torch.tensor(np.load(args.classify_weight_path))
 
     # initialize the g of weight normalization
-    if custom._normlinear and custom._normlinear in ['21', '22']:
+    if custom._normlinear and custom._normlinear in ['21', '22', '23']:
         weight = model.classifier.weight.data
         weight_norm = weight.norm(dim=1, keepdim=True)
         model.classifier.weight.data = weight / weight_norm
@@ -275,8 +275,11 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         if args.scale_change and epoch > args.scale_change_epoch:
-            model.module.classifier.scale_small = args.scale_second_small
-            model.module.classifier.scale_large = args.scale_second_large
+            if custom._normlinear=='23':
+                model.module.classifier.scale.data.fill_(args.scale_second_small)
+            else:
+                model.module.classifier.scale_small = args.scale_second_small
+                model.module.classifier.scale_large = args.scale_second_large
 
         if args.margin_change and epoch > args.margin_change_epoch:
             model.module.classifier.m = args.margin_second

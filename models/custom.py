@@ -378,7 +378,7 @@ class Conv2dPR_Detach(nn.Conv2d):
 class LinearNorm(nn.Linear):
 
     def __init__(self, in_features, out_features, eps=1e-8):
-        if _normlinear == '22':
+        if _normlinear in ['22', '23']:
             super(LinearNorm, self).__init__(out_features, out_features, _bias)
         else:
             super(LinearNorm, self).__init__(in_features, out_features, _bias)
@@ -393,14 +393,14 @@ class LinearNorm(nn.Linear):
         if _normlinear == '17':
             self.weight.register_hook(lambda grad: self.lens * grad)
 
+        if _normlinear == '23':
+            self.scale = nn.Parameter(_scale_linear*torch.ones(1, 1))
+
     def forward(self, x, label):
 
         # weigth length
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
         self.lens.data = lens.data
-
-        # feature norm
-        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
         if _normlinear == '17':
             x_ = x
@@ -417,14 +417,15 @@ class LinearNorm(nn.Linear):
             self.g.data = lens.data
 
         # 　fix the classifier　and use loaded weight
-        elif _normlinear == '22':
+        elif _normlinear in ['22', '23']:
+            self.g.data = lens.data
             weight = self.weight.detach()
-
             x_ = x.unsqueeze(dim=1)
             x_ = F.adaptive_avg_pool1d(x_, self.out_features).squeeze(dim=1)
-            feature_len = torch.sqrt(x_.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
 
-            self.g.data = lens.data
+            if _normlinear == '23':
+                scale = self.scale.detach()
+                x_ = scale * F.normalize(x_, p=2, dim=1)
 
         elif _normlinear is None:
             weight = self.weight
@@ -435,7 +436,7 @@ class LinearNorm(nn.Linear):
             raise AssertionError('_norm is not valid!')
 
         # costheta
-        cos_theta = torch.mm(x_ / feature_len, weight.t())  # B x class_num#
+        cos_theta = torch.mm(x_ / x_.norm(dim=1, keepdim=True), (weight/weight.norm(dim=1, keepdim=True)).t())  # B x class_num#
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
