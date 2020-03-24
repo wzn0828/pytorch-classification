@@ -378,7 +378,7 @@ class Conv2dPR_Detach(nn.Conv2d):
 class LinearNorm(nn.Linear):
 
     def __init__(self, in_features, out_features, eps=1e-8):
-        if _normlinear in ['22', '23']:
+        if _normlinear in ['22', '23', '24']:
             super(LinearNorm, self).__init__(out_features, out_features, _bias)
         else:
             super(LinearNorm, self).__init__(in_features, out_features, _bias)
@@ -417,7 +417,7 @@ class LinearNorm(nn.Linear):
             self.g.data = lens.data
 
         # 　fix the classifier　and use loaded weight
-        elif _normlinear in ['22', '23']:
+        elif _normlinear in ['22', '23', '24']:
             self.g.data = lens.data
             weight = self.weight.detach()
             x_ = x.unsqueeze(dim=1)
