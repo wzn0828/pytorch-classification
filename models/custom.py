@@ -375,10 +375,64 @@ class Conv2dPR_Detach(nn.Conv2d):
         return out
 
 
+class SelfAttention(nn.Module):
+
+    def __init__(self, in_features, inter_features):
+        super(SelfAttention, self).__init__()
+        self.linear1 = nn.Linear(in_features, inter_features, bias=True)
+        self.linear2 = nn.Linear(inter_features, 1, bias=False)
+        self._initialize_weights()
+
+    def forward(self, features):
+        '''
+        :param features: N,n,in_features
+        :return:
+        '''
+        lay1 = F.tanh(self.linear1(features))
+        coeffi = F.softmax(self.linear2(lay1), dim=1)
+
+        return (coeffi*features).sum(dim=1)
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_normal_(m.weight, gain=5.0/3.0)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+
+class SEModule(nn.Module):
+
+    def __init__(self, channelNum):
+        super(SEModule, self).__init__()
+        self.linear1 = nn.Linear(channelNum, channelNum, bias=True)
+        self.linear2 = nn.Linear(channelNum, channelNum, bias=False)
+        self._initialize_weights()
+
+    def forward(self, features):
+        '''
+        :param features: N,n,in_features
+        :return:
+        '''
+        lay1 = self.linear1(F.avg_pool1d(features, features.size(2)).squeeze(dim=2))
+        lay1 = F.tanh(lay1)
+        coeffi = F.softmax(self.linear2(lay1), dim=1)
+
+        return (coeffi.unsqueeze(dim=-1) * features).sum(dim=1)
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_normal_(m.weight, gain=5.0/3.0)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+
+
 class LinearNorm(nn.Linear):
 
     def __init__(self, in_features, out_features, eps=1e-8):
-        if _normlinear in ['22', '23', '24', '25']:
+        if _normlinear in ['22', '23', '24', '25', '26', '27']:
             super(LinearNorm, self).__init__(out_features, out_features, _bias)
         else:
             super(LinearNorm, self).__init__(in_features, out_features, _bias)
@@ -395,6 +449,13 @@ class LinearNorm(nn.Linear):
 
         if _normlinear == '23':
             self.scale = nn.Parameter(_scale_linear*torch.ones(1, 1))
+
+        if _normlinear == '26':
+            self.attention = SelfAttention(out_features, 10)
+
+        if _normlinear == '27':
+            self.attention = SEModule(5)
+
 
     def forward(self, x, label):
 
@@ -435,6 +496,17 @@ class LinearNorm(nn.Linear):
             x_ = x.unsqueeze(dim=1)
             x_ = F.adaptive_avg_pool1d(x_, x_.size(-1)//self.out_features*self.out_features).squeeze(dim=1)
             x_ = x_.view(x_.size(0), self.out_features, -1).mean(dim=-1)
+
+        #　SelfAttention
+        elif _normlinear in ['26', '27']:
+            self.g.data = lens.data
+            weight = self.weight.detach()
+
+            x_ = x.unsqueeze(dim=1)
+            x_ = F.adaptive_avg_pool1d(x_, x_.size(-1) // self.out_features * self.out_features).squeeze(dim=1)
+            x_ = x_.view(x_.size(0), self.out_features, -1).transpose(-2, -1)
+
+            x_ = self.attention(x_)
 
         elif _normlinear is None:
             weight = self.weight
