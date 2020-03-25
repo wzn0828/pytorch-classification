@@ -378,7 +378,7 @@ class Conv2dPR_Detach(nn.Conv2d):
 class LinearNorm(nn.Linear):
 
     def __init__(self, in_features, out_features, eps=1e-8):
-        if _normlinear in ['22', '23', '24']:
+        if _normlinear in ['22', '23', '24', '25']:
             super(LinearNorm, self).__init__(out_features, out_features, _bias)
         else:
             super(LinearNorm, self).__init__(in_features, out_features, _bias)
@@ -426,6 +426,15 @@ class LinearNorm(nn.Linear):
             if _normlinear == '23':
                 scale = self.scale.detach()
                 x_ = scale * F.normalize(x_, p=2, dim=1)
+
+        #　ensamble
+        elif _normlinear == '25':
+            self.g.data = lens.data
+            weight = self.weight.detach()
+
+            x_ = x.unsqueeze(dim=1)
+            x_ = F.adaptive_avg_pool1d(x_, x_.size(-1)//self.out_features*self.out_features).squeeze(dim=1)
+            x_ = x_.view(x_.size(0), self.out_features, -1).mean(dim=-1)
 
         elif _normlinear is None:
             weight = self.weight

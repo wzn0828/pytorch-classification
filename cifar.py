@@ -222,7 +222,7 @@ def main():
         model.classifier.weight.data.fill_diagonal_(args.num_classes-1)
 
     # initialize the g of weight normalization
-    if custom._normlinear and custom._normlinear in ['21', '22', '23', '24']:
+    if custom._normlinear and custom._normlinear in ['21', '22', '23', '24', '25']:
         weight = model.classifier.weight.data
         weight_norm = weight.norm(dim=1, keepdim=True)
         model.classifier.weight.data = weight / weight_norm
