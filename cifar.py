@@ -217,7 +217,7 @@ def main():
     if args.classify_weight_load:
         model.classifier.weight.data = torch.tensor(np.load(args.classify_weight_path))
 
-    if custom._normlinear=='24':
+    if args.classify_weight_load == False and custom._normlinear in ['24', '27']:
         model.classifier.weight.data.fill_(-1.)
         model.classifier.weight.data.fill_diagonal_(args.num_classes-1)
 
@@ -337,7 +337,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         # inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
-        outputs, features = model(inputs, targets)
+        outputs, features = model(inputs)
         outputs, cosine = outputs
         if args.loss_type == 'softmax':
             pred = outputs
@@ -451,7 +451,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs, features = model(inputs, targets)
+            outputs, features = model(inputs)
             outputs, cosine = outputs
 
             if args.loss_type == 'softmax':

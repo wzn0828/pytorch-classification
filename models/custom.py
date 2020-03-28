@@ -417,6 +417,7 @@ class SEModule(nn.Module):
         lay1 = self.linear1(F.avg_pool1d(features, features.size(2)).squeeze(dim=2))
         lay1 = F.tanh(lay1)
         coeffi = F.softmax(self.linear2(lay1), dim=1)
+        # coeffi = F.sigmoid(self.linear2(lay1))
 
         return (coeffi.unsqueeze(dim=-1) * features).sum(dim=1)
 
@@ -454,10 +455,10 @@ class LinearNorm(nn.Linear):
             self.attention = SelfAttention(out_features, 10)
 
         if _normlinear == '27':
-            self.attention = SEModule(5)
+            self.attention = SEModule(in_features // out_features)
 
 
-    def forward(self, x, label):
+    def forward(self, x):
 
         # weigth length
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
@@ -504,7 +505,8 @@ class LinearNorm(nn.Linear):
 
             x_ = x.unsqueeze(dim=1)
             x_ = F.adaptive_avg_pool1d(x_, x_.size(-1) // self.out_features * self.out_features).squeeze(dim=1)
-            x_ = x_.view(x_.size(0), self.out_features, -1).transpose(-2, -1)
+            # x_ = x_.view(x_.size(0), self.out_features, -1).transpose(-2, -1)
+            x_ = x_.view(x_.size(0), -1, self.out_features)
 
             x_ = self.attention(x_)
 
