@@ -10,6 +10,8 @@ exp
 .idea/
 Experiments
 ConfusionMatrixToWeightMatrix/data
+FixedWeightMatrix/confusitionmatrix
+FixedWeightMatrix/loss-hpn
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

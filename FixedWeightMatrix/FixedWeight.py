@@ -239,6 +239,15 @@ def test(testloader, model, use_cuda):
     pred_list = []
     target_list = []
 
+
+
+
+    CM=torch.tensor(np.load('/home/wzn/PycharmProjects/pytorch-classification/FixedWeightMatrix/confusitionmatrix/cifar100_vgg19bn_norm-l24_test.npy'))
+    CM=CM.cuda()
+    CM.fill_diagonal_(100)
+
+
+
     with torch.no_grad():
         end = time.time()
         for batch_idx, (inputs, targets) in enumerate(testloader):
@@ -257,6 +266,18 @@ def test(testloader, model, use_cuda):
             else:
                 pred = cosine
             # measure accuracy
+
+            newpred=[]
+            for indice in pred.data.argmax(dim=1):
+                newpred.append(CM[indice, :])
+            pred = torch.stack(newpred, dim=0)
+
+
+
+
+
+
+
             prec1, prec5 = accuracy(pred.data, targets.data, topk=(1, 5))
             top1.update(prec1.item(), inputs.size(0))
             top5.update(prec5.item(), inputs.size(0))
