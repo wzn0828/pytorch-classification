@@ -323,6 +323,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     data_time = AverageMeter()
     losses = AverageMeter()
     losses_norm = AverageMeter()
+    losses_angular = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
@@ -359,6 +360,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
             losses_norm.update(feature_L2norm_loss.item(), inputs.size(0))
             loss = loss + feature_L2norm_loss
 
+        #　angular loss
+        if args.angular_loss:
+            angular_loss = get_angular_loss(model.module.classifier.weight)
+            losses_angular.update(angular_loss.item())
+            loss = loss + args.angular_loss_weight * angular_loss
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -380,6 +387,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_train', losses_angular.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
@@ -527,6 +535,33 @@ def get_L2norm_loss_self_driven(x):
         l = F.l1_loss(x_len, torch.full_like(x_len, args.feature_radius))
 
     return args.weight_L2norm * l
+
+
+
+def get_angular_loss(weight):
+    '''
+    :param weight: parameter of model, out_features *　in_features
+    :return: angular loss
+    '''
+    # Dot product of normalized prototypes is cosine similarity.
+    weight = F.normalize(weight, p=2, dim=1)
+    product = torch.matmul(weight, weight.t())
+
+    c = weight.size(0)
+    d = weight.size(1)
+
+    if d >= c - 1:
+        target = -1.0/(c-1)
+        product.fill_diagonal_(target)
+        loss = (product-target).pow(2).sum()/(2.0*(c-1))
+    else:
+        # Remove diagnonal from loss
+        product_ = product - 2. * torch.diag(torch.diag(product))
+        # Minimize maximum cosine similarity.
+        loss = product_.max(dim=1)[0].mean()
+
+    return loss
+
 
 
 def compute_weight_cosine(model):
