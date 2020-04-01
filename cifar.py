@@ -323,7 +323,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     data_time = AverageMeter()
     losses = AverageMeter()
     losses_norm = AverageMeter()
-    losses_angular = AverageMeter()
+    losses_classify_angular = AverageMeter()
+    losses_hidden_angular = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
@@ -361,10 +362,20 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
             loss = loss + feature_L2norm_loss
 
         #　angular loss
-        if args.angular_loss:
-            angular_loss = get_angular_loss(model.module.classifier.weight)
-            losses_angular.update(angular_loss.item())
-            loss = loss + args.angular_loss_weight * angular_loss
+        if args.angular_loss_classify:
+            angular_loss_classify = get_angular_loss(model.module.classifier.weight)
+            losses_classify_angular.update(angular_loss_classify.item())
+            loss = loss + args.angular_loss_weight * angular_loss_classify
+
+        if args.angular_loss_hidden:
+            for name, m in model.module.named_modules():
+                # if isinstance(m, custom.Con2d_Class):
+                if name is 'classifier':
+                    continue
+                elif isinstance(m, (custom.Linear_Class, custom.Con2d_Class)):
+                    angular_loss_hidden = get_angular_loss(m.weight)
+                    losses_hidden_angular.update(angular_loss_hidden.item())
+                    loss = loss + args.angular_loss_weight * angular_loss_hidden
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -387,7 +398,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
-    add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_train', losses_angular.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_Classify', losses_classify_angular.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_Hidden', losses_hidden_angular.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
     add_summary_value(tb_summary_writer, 'Logits[0][0]', outputs[0][0], epoch)
@@ -537,31 +549,25 @@ def get_L2norm_loss_self_driven(x):
     return args.weight_L2norm * l
 
 
-
 def get_angular_loss(weight):
     '''
     :param weight: parameter of model, out_features *　in_features
     :return: angular loss
     '''
+    # for convolution layers, flatten
+    if weight.dim() > 2:
+        weight = weight.view(weight.size(0), -1)
+
     # Dot product of normalized prototypes is cosine similarity.
-    weight = F.normalize(weight, p=2, dim=1)
-    product = torch.matmul(weight, weight.t())
+    weight_ = F.normalize(weight, p=2, dim=1)
+    product = torch.matmul(weight_, weight_.t())
 
-    c = weight.size(0)
-    d = weight.size(1)
-
-    if d >= c - 1:
-        target = -1.0/(c-1)
-        product.fill_diagonal_(target)
-        loss = (product-target).pow(2).sum()/(2.0*(c-1))
-    else:
-        # Remove diagnonal from loss
-        product_ = product - 2. * torch.diag(torch.diag(product))
-        # Minimize maximum cosine similarity.
-        loss = product_.max(dim=1)[0].mean()
+    # Remove diagnonal from loss
+    product_ = product - 2. * torch.diag(torch.diag(product))
+    # Maxmize the minimum theta.
+    loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
 
     return loss
-
 
 
 def compute_weight_cosine(model):
