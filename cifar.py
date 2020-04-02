@@ -365,7 +365,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         if args.angular_loss_classify:
             angular_loss_classify = get_angular_loss(model.module.classifier.weight)
             losses_classify_angular.update(angular_loss_classify.item())
-            loss = loss + args.angular_loss_weight * angular_loss_classify
+            if args.angular_loss_weight != 0:
+                loss = loss + args.angular_loss_weight * angular_loss_classify
 
         if args.angular_loss_hidden:
             for name, m in model.module.named_modules():
@@ -375,7 +376,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                 elif isinstance(m, (custom.Linear_Class, custom.Con2d_Class)):
                     angular_loss_hidden = get_angular_loss(m.weight)
                     losses_hidden_angular.update(angular_loss_hidden.item())
-                    loss = loss + args.angular_loss_weight * angular_loss_hidden
+                    if args.angular_loss_weight != 0:
+                        loss = loss + args.angular_loss_weight * angular_loss_hidden
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
