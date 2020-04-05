@@ -78,12 +78,21 @@ class Transition(nn.Module):
 
 class DenseNet(nn.Module):
 
-    def __init__(self, depth=22, block=Bottleneck, 
+    def __init__(self, depth=22, block_name='BasicBlock',
         dropRate=0, num_classes=10, growthRate=12, compressionRate=2):
         super(DenseNet, self).__init__()
 
-        assert (depth - 4) % 3 == 0, 'depth should be 3n+4'
-        n = (depth - 4) / 3 if block == BasicBlock else (depth - 4) // 6
+        # Model type specifies number of layers for CIFAR-10 model
+        if block_name.lower() == 'basicblock':
+            assert (depth - 4) % 3 == 0, 'When use basicblock, depth should be 3n+4, e.g. 40, 100, 190, 250'
+            n = (depth - 4) // 3
+            block = BasicBlock
+        elif block_name.lower() == 'bottleneck':
+            assert (depth - 4) % 6 == 0, 'When use bottleneck, depth should be 6n+4, e.g. 40, 100, 190, 250'
+            n = (depth - 4) // 6
+            block = Bottleneck
+        else:
+            raise ValueError('block_name shoule be Basicblock or Bottleneck')
 
         self.growthRate = growthRate
         self.dropRate = dropRate

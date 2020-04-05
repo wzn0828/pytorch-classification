@@ -195,6 +195,7 @@ def main():
                     depth=args.depth,
                     growthRate=args.growthRate,
                     compressionRate=args.compressionRate,
+                    block_name=args.block_name,
                     dropRate=args.drop,
                 )
     elif args.arch.startswith('wrn'):
