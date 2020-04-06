@@ -97,13 +97,14 @@ args = parser.parse_args()
 args.gpu_id = '1'
 
 args.dataset = 'cifar100'
-args.arch = 'wrn'
-args.depth = 16
-args.widen_factor = 8
-args.drop = 0.3
-args.weight_decay = 5e-4
+args.arch = 'densenet'
+args.block_name = 'basicblock'
+args.compressionRate = 1
+args.depth = 40
+args.growthRate = 12
+args.weight_decay = 1e-4
 set_gl_variable(linear=LinearNorm, normlinear=None)
-args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_wrn-16-8_norm-none_angular-all-0.03'
+args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_densenet-40-12_norm-none_angular-all-0.03'
 
 args.angular_loss_classify = True
 args.angular_loss_hidden = True
@@ -134,10 +135,10 @@ args.rl_change_epoch = 122
 args.rl_second_radius = 4.0
 args.rl_second_weight = 0.02
 
-args.gamma = 0.2
-args.train_batch = 128
-args.schedule = [60, 120, 160]
-args.epochs = 200
+args.gamma = 0.1
+args.train_batch = 64
+args.schedule = [150, 225]
+args.epochs = 300
 
 args.tensorboard_paras = ['.g', '.v', '.lens']
 

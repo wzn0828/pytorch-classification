@@ -27,26 +27,26 @@ args = parser.parse_args()
 # ------local config------ #
 args.gpu_id = '0'
 
-args.generate_CM = False
+args.generate_CM = True
 
 args.dataset = 'cifar100'
 args.workers = 4
 args.batch = 128
 args.data_path = '/home/wzn/Datasets/Classification'
-args.parapath = '../Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_norm-none-2/model_best.pth.tar'
+args.parapath = '../Experiments/FixWeight/cifar100_vgg19bn_wd5e-4_norm-l24/model_best.pth.tar'
 
 args.arch = 'vgg19_bn'
 args.loss_type = 'softmax'         # softmax, cosine, theta
-set_gl_variable(linear=LinearNorm, normlinear='21')
+set_gl_variable(linear=LinearNorm, normlinear='24')
 
 args.scale_change = False
 args.scale_second_large = 4.0
 args.scale_second_small = 16.0
 
-args.CMsavepath = '../ConfusionMatrixToWeightMatrix/cifar100_vgg19bn_test.npy'
+args.CMsavepath = '../FixedWeightMatrix/confusitionmatrix/cifar100_vgg19bn_norm-l24_test.npy'
 
 args.generate_weight_bycosine = False
-args.generate_weight_bytheta = True
+args.generate_weight_bytheta = False
 args.min_theta = 30.
 args.max_theta = 90.
 args.cosineSavePath = '../ConfusionMatrixToWeightMatrix/cifar100_vgg19bn_test_cosine.npy'
