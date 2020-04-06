@@ -12,6 +12,7 @@ import random
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
@@ -30,7 +31,7 @@ except ImportError:
     tb = None
 
 # Models
-default_model_names = sorted(name for name in models.__dict__
+model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
@@ -210,7 +211,6 @@ def main():
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
 
-
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
                                                         milestones=args.schedule, last_epoch=start_epoch - 1)
 
@@ -260,6 +260,8 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+    losses_classify_angular = AverageMeter()
+    losses_hidden_angular = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
@@ -283,6 +285,21 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
         top1.update(prec1.item(), inputs.size(0))
         top5.update(prec5.item(), inputs.size(0))
 
+        #　angular loss
+        if args.angular_loss_classify or args.angular_loss_hidden:
+            for name, m in model.module.named_modules():
+                if args.angular_loss_classify and isinstance(m, nn.Linear):
+                    angular_loss_classify = get_angular_loss(m.weight)
+                    losses_classify_angular.update(angular_loss_classify.item())
+                    if args.angular_loss_weight != 0:
+                        loss = loss + args.angular_loss_weight * angular_loss_classify
+
+                elif args.angular_loss_hidden and isinstance(m, nn.Conv2d):
+                    angular_loss_hidden = get_angular_loss(m.weight)
+                    losses_hidden_angular.update(angular_loss_hidden.item())
+                    if args.angular_loss_weight != 0:
+                        loss = loss + args.angular_loss_weight * angular_loss_hidden
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -303,6 +320,8 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Loss/Angular_Loss_Classify', losses_classify_angular.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Loss/Angular_Loss_Hidden', losses_hidden_angular.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
 
@@ -371,6 +390,26 @@ def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))
+        
+def get_angular_loss(weight):
+    '''
+    :param weight: parameter of model, out_features *　in_features
+    :return: angular loss
+    '''
+    # for convolution layers, flatten
+    if weight.dim() > 2:
+        weight = weight.view(weight.size(0), -1)
+
+    # Dot product of normalized prototypes is cosine similarity.
+    weight_ = F.normalize(weight, p=2, dim=1)
+    product = torch.matmul(weight_, weight_.t())
+
+    # Remove diagnonal from loss
+    product_ = product - 2. * torch.diag(torch.diag(product))
+    # Maxmize the minimum theta.
+    loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
+
+    return loss
 
 if __name__ == '__main__':
     main()
