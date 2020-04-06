@@ -19,13 +19,9 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-import models.imagenet as customized_models
-from models.custom import *
-import models.custom as custom
 
 from utils.misc import add_summary_value
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
-# from libs import InPlaceABNSync as libs_IABNS
 
 try:
     import tensorboardX as tb
@@ -37,16 +33,6 @@ except ImportError:
 default_model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
-
-customized_models_names = sorted(name for name in customized_models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(customized_models.__dict__[name]))
-
-for name in customized_models.__dict__:
-    if name.islower() and not name.startswith("__") and callable(customized_models.__dict__[name]):
-        models.__dict__[name] = customized_models.__dict__[name]
-
-model_names = default_model_names + customized_models_names
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -112,7 +98,6 @@ args.test_batch = 1024
 args.lr = 0.1
 args.schedule = [30, 60]
 args.arch = 'resnet50'
-set_gl_variable(LinearNorm, Conv2dNorm, normlinear='1', normconv2d='8')
 
 args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet50_l1-c8'
 
@@ -196,28 +181,6 @@ def main():
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-    # initialize the g of weight normalization
-    if custom._normlinear is not None:
-        for m in model.modules():
-            if isinstance(m, LinearNorm):
-                if custom._normlinear == '3-1' or custom._normlinear == '3-5':
-                    m.g.data = torch.sqrt(
-                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps))
-                elif custom._normlinear == '3-2' or custom._normlinear == '3-3' or custom._normlinear == '3-4':
-                    m.g.data = torch.sqrt(
-                        (m.weight.pow(2).sum(dim=1, keepdim=True)).clamp_(min=m.eps)).mean(dim=0, keepdim=True)
-    if custom._normconv2d is not None:
-        for m in model.modules():
-            if isinstance(m, Conv2dNorm):
-                if custom._normconv2d == '3-1' or custom._normconv2d == '3-5':
-                    m.g.data = torch.sqrt(
-                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
-                            min=m.eps)).unsqueeze(-1).unsqueeze(-1)
-                elif custom._normconv2d == '3-2' or custom._normconv2d == '3-3' or custom._normconv2d == '3-4':
-                    m.g.data = torch.sqrt(
-                        m.weight.view(m.weight.size(0), -1).pow(2).sum(dim=1, keepdim=True).clamp_(
-                            min=m.eps)).unsqueeze(-1).unsqueeze(-1).mean(dim=0, keepdim=True)
-
     if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
         model.features = torch.nn.DataParallel(model.features)
         model.cuda()
@@ -290,34 +253,6 @@ def main():
     print(best_acc)
 
 
-def compute_cosine(outputs, features, model, sample=[0,1,2,3,4]):
-    '''
-    :param outputs: # batch*num_classes
-    :param features: # batch*infeatures(512 in CnX)
-    :param model: model.module.classifier.weight  # num_classes*infeatures(512 in CnX)
-    :return:
-    '''
-
-    weight_len = torch.abs(model.module.classifier.g).squeeze(dim=1)
-    bias = model.module.classifier.bias
-
-    retures = []
-    for i in sample:
-        if i < outputs.size(0):
-            output = outputs[i] - bias if bias is not None else outputs[i]       # num_classes
-            feature_len = features[i].norm()  # a scalar
-            cosine = output / weight_len.clamp(min=1e-5) / feature_len.clamp(min=1e-5) # num_classes
-            retures.append((output, cosine))
-
-    return retures              # num_classes
-
-def compute_weight_cosine(model):
-    weight = model.module.classifier.weight
-    weight = weight/weight.norm(dim=1, keepdim=True)
-
-    return torch.matmul(weight, weight.t()).data.cpu()
-
-
 def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
     # switch to train mode
     model.train()
@@ -335,11 +270,11 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
         data_time.update(time.time() - end)
 
         if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda(async=True)
+            inputs, targets = inputs.cuda(), targets.cuda()
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
-        outputs, features = model(inputs)
+        outputs = model(inputs)
         loss = criterion(outputs, targets)
 
         # measure accuracy and record loss
@@ -367,61 +302,12 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
                       epoch, batch_idx, len(train_loader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
 
-        # # plot progress
-        # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-        #             batch=batch_idx + 1,
-        #             size=len(train_loader),
-        #             data=data_time.val,
-        #             bt=batch_time.val,
-        #             total=bar.elapsed_td,
-        #             eta=bar.eta_td,
-        #             loss=losses.avg,
-        #             top1=top1.avg,
-        #             top5=top5.avg,
-        #             )
-    #     bar.next()
-    # bar.finish()
-
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top1/train', top1.avg, epoch)
     add_summary_value(tb_summary_writer, 'Top5/train', top5.avg, epoch)
 
-    # compute the cosine of classify layer
-    output_cosines = compute_cosine(outputs, features, model, sample=[0, 1, 2, 3, 4])
-    for i, output_cosine in enumerate(output_cosines):
-        tb_summary_writer.add_histogram('Output/' + 'batch_' + str(i), output_cosine[0], epoch)
-        tb_summary_writer.add_histogram('Cosine/' + 'batch_' + str(i), output_cosine[1], epoch)
-
-    if args.tensorboard_paras is not None:
-        for name, para in model.module.named_parameters():
-            if para is not None:
-                for para_name in args.tensorboard_paras:
-                    if para_name in name:
-                        if para_name == '.g':
-                            para.data = torch.abs(para.data)
-                        tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
-                        add_summary_value(tb_summary_writer, 'Scalars/' + name.replace('.', '/'), para.mean(), epoch)
-                        if para.grad is not None:
-                            tb_summary_writer.add_histogram('Grads/' + name.replace('.', '/'), para.grad, epoch)
-                        # last several epochs, tensorboard clearly
-                        if epoch > args.epochs - 10:
-                            tb_summary_writer.add_histogram('Weights_10/' + name.replace('.', '/'), para, epoch)
-                            add_summary_value(tb_summary_writer, 'Scalars_10/' + name.replace('.', '/'), para.mean(),
-                                              epoch)
-                            if para.grad is not None:
-                                tb_summary_writer.add_histogram('Grads_10/' + name.replace('.', '/'), para.grad, epoch)
-                            for i, output_cosine in enumerate(output_cosines):
-                                tb_summary_writer.add_histogram('Output_10/' + 'batch_' + str(i), output_cosine[0],
-                                                                epoch)
-                                tb_summary_writer.add_histogram('Cosine_10/' + 'batch_' + str(i), output_cosine[1],
-                                                                epoch)
-
-    if epoch == args.epochs:
-        cosine_similarity = compute_weight_cosine(model)
-        torch.save(cosine_similarity, args.checkpoint + '/cosine_similarity.pt')
-        print(cosine_similarity)
-
     return (losses.avg, top1.avg)
+
 
 def test(val_loader, model, criterion, epoch, use_cuda):
     global best_acc
@@ -443,11 +329,11 @@ def test(val_loader, model, criterion, epoch, use_cuda):
             data_time.update(time.time() - end)
 
             if use_cuda:
-                inputs, targets = inputs.cuda(), targets.cuda(async=True)
+                inputs, targets = inputs.cuda(), targets.cuda()
             inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs, features = model(inputs)
+            outputs = model(inputs)
             loss = criterion(outputs, targets)
 
             # measure accuracy and record loss
@@ -460,19 +346,6 @@ def test(val_loader, model, criterion, epoch, use_cuda):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            # # plot progress
-            # bar.suffix  = '({batch}/{size}) Data: {data:.3f}s | Batch: {bt:.3f}s | Total: {total:} | ETA: {eta:} | Loss: {loss:.4f} | top1: {top1: .4f} | top5: {top5: .4f}'.format(
-            #             batch=batch_idx + 1,
-            #             size=len(val_loader),
-            #             data=data_time.avg,
-            #             bt=batch_time.avg,
-            #             total=bar.elapsed_td,
-            #             eta=bar.eta_td,
-            #             loss=losses.avg,
-            #             top1=top1.avg,
-            #             top5=top5.avg,
-            #             )
-
             if batch_idx % args.print_freq == 0:
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -481,9 +354,6 @@ def test(val_loader, model, criterion, epoch, use_cuda):
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                     batch_idx, len(val_loader), batch_time=batch_time, loss=losses,
                     top1=top1, top5=top5))
-
-        #     bar.next()
-        # bar.finish()
 
     print(' * Prec@1 {top1.avg:.3f}\t'
           ' * Prec@5 {top5.avg:.3f}'
@@ -494,13 +364,6 @@ def test(val_loader, model, criterion, epoch, use_cuda):
         add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
 
-        if args.tensorboard_paras is not None:
-            for name, para in model.module.named_parameters():
-                if para is not None:
-                    for para_name in args.tensorboard_paras:
-                        if para_name in name:
-                            tb_summary_writer.add_histogram('Weights/' + name.replace('.', '/'), para, epoch)
-
     return (losses.avg, top1.avg)
 
 def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth.tar'):
@@ -508,13 +371,6 @@ def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))
-
-def adjust_learning_rate(optimizer, epoch):
-    global state
-    if epoch in args.schedule:
-        state['lr'] *= args.gamma
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = state['lr']
 
 if __name__ == '__main__':
     main()
