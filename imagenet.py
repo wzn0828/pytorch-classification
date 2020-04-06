@@ -90,27 +90,28 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
-args.data = '/media/HDD_4TB/wzn/Datasets/ILSVRC'
-args.workers = 8
-args.epochs = 90
-args.start_epoch = 0
-args.train_batch = 256
-args.test_batch = 1024
-args.lr = 0.1
-args.schedule = [30, 60]
-args.arch = 'resnet50'
+args.gpu_id = '0,1,2,3'
+args.data = '/media/SSD_1TB/wzn/Datasets/ILSVRC'
+args.arch = 'resnet18'
 
-args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet50_l1-c8'
+args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet18'
+
+args.angular_loss_classify = True
+args.angular_loss_hidden = True
+args.angular_loss_weight = 0.03
 
 args.evaluate = False
 args.pretrained = False
 
-args.tensorboard_paras = ['.g', '.v']
+args.gamma = 0.1
+args.train_batch = 256
+args.test_batch = 1024
+args.schedule = [30, 60]
+args.workers = 8
+args.epochs = 90
 
 args.manualSeed = 123
 args.print_freq = 10
-
-args.gpu_id = '0,1,2,3'
 # ------local config------ #
 
 state = {k: v for k, v in args._get_kwargs()}
@@ -212,7 +213,7 @@ def main():
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=args.schedule, last_epoch=start_epoch - 1)
+                                                        milestones=args.schedule, gamma=args.gamma, last_epoch=start_epoch - 1)
 
     if args.evaluate:
         # print('\nEvaluation only')
@@ -287,7 +288,12 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
 
         #　angular loss
         if args.angular_loss_classify or args.angular_loss_hidden:
-            for name, m in model.module.named_modules():
+            if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+                modules = model.named_modules()
+            else:
+                modules = model.module.named_modules()
+
+            for name, m in modules:
                 if args.angular_loss_classify and isinstance(m, nn.Linear):
                     angular_loss_classify = get_angular_loss(m.weight)
                     losses_classify_angular.update(angular_loss_classify.item())

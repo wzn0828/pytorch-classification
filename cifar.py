@@ -94,21 +94,50 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
-args.gpu_id = '0'
+args.gpu_id = '1'
 
 args.dataset = 'cifar100'
-args.arch = 'vgg19_bn'
-set_gl_variable(linear=ArcClassify, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix')
-args.checkpoint = 'Experiments/LengthNormalization2/CIFAR100/cifar100_vgg19bn_wd5e-4_arc-s16-m0'
+args.arch = 'wrn'
+args.depth = 16
+args.widen_factor = 8
+args.drop = 0.3
+args.weight_decay = 5e-4
+set_gl_variable(linear=LinearNorm, normlinear=None)
+args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_wrn-16-8_norm-none_angular-all-0.03'
+
+args.angular_loss_classify = True
+args.angular_loss_hidden = True
+args.angular_loss_weight = 0.03
+
+args.loss_type = 'softmax'         # softmax, cosine, theta
+args.loss_margin = 0               # only effective when loss is cosine or theta
+args.loss_only_margin_right = False
+
+args.classify_weight_load = False
+args.classify_weight_path = 'FixedWeightMatrix/loss-hpn/final-512d-10c.npy'
+
+args.margin_change = False
+args.margin_change_epoch = 122
+args.margin_second = 0.1
+
+args.scale_change = False
+args.scale_change_epoch = 130
+args.scale_second_large = 16.0
+args.scale_second_small = 4.0
 
 args.ring_loss = False
 args.normlosstype = 'SmoothL1'     # 'L2',  'SmoothL1', 'SAFN' , 'L1'
 args.feature_radius = 16.0
 args.weight_L2norm = 0.01
+args.rl_change = True
+args.rl_change_epoch = 122
+args.rl_second_radius = 4.0
+args.rl_second_weight = 0.02
 
+args.gamma = 0.2
 args.train_batch = 128
-args.schedule = [81, 122]
-args.epochs = 164
+args.schedule = [60, 120, 160]
+args.epochs = 200
 
 args.tensorboard_paras = ['.g', '.v', '.lens']
 
@@ -258,7 +287,7 @@ def main():
         logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                        milestones=args.schedule, last_epoch=start_epoch-1)
+                                                        milestones=args.schedule, gamma=args.gamma, last_epoch=start_epoch-1)
 
     # if args.arch in ['resnet'] and args.depth >= 110:
     # for resnet1202 original paper uses lr=0.01 for first 400 minibatches for warm-up
