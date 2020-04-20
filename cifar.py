@@ -174,6 +174,7 @@ if use_cuda:
 # still need to set the work_init_fn to random.seed in train_dataloader, if multi numworkers
 
 best_acc = 0  # best test accuracy
+batch_iters = 0  # record　the iterations of batches　
 
 def main():
     global best_acc
@@ -347,6 +348,7 @@ def main():
     print(best_acc)
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
+    global batch_iters
     # switch to train mode
     model.train()
 
@@ -410,6 +412,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                     if args.angular_loss_weight != 0:
                         loss = loss + args.angular_loss_weight * angular_loss_hidden
 
+        if args.record_min_angle == True and batch_iters % args.print_freq == 0:
+            for name, m in model.module.named_modules():
+                if isinstance(m, (custom.Linear_Class, custom.Con2d_Class)):
+                    min_angle = get_min_angle(m.weight)
+                    add_summary_value(tb_summary_writer, 'Min_angle/' + name, min_angle, batch_iters)
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -428,6 +436,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                       epoch, batch_idx, len(trainloader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
+
+        batch_iters += 1
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
@@ -580,6 +590,19 @@ def get_L2norm_loss_self_driven(x):
         l = F.l1_loss(x_len, torch.full_like(x_len, args.feature_radius))
 
     return args.weight_L2norm * l
+
+
+def get_min_angle(weight):
+    # for convolution layers, flatten
+    if weight.dim() > 2:
+        weight = weight.view(weight.size(0), -1)
+
+    # 　compute minimum angle
+    weight_ = F.normalize(weight, p=2, dim=1)
+    product = torch.matmul(weight_, weight_.t())
+    min_angle = torch.acos((product - 2. * torch.diag(torch.diag(product))).max()).item() / math.pi * 180
+
+    return min_angle
 
 
 def get_angular_loss(weight):
