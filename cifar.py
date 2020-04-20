@@ -591,14 +591,49 @@ def get_angular_loss(weight):
     if weight.dim() > 2:
         weight = weight.view(weight.size(0), -1)
 
+    if args.angular_loss_type == 's-kernel':
+        total = weight.size(0)
+        num = math.ceil(total * args.loss_skernel_ratio)
+        if num == 1:
+            print('num is one！!!')
+        index = torch.randperm(total)[:num]
+        weight = weight[index]
+
     # Dot product of normalized prototypes is cosine similarity.
     weight_ = F.normalize(weight, p=2, dim=1)
-    product = torch.matmul(weight_, weight_.t())
 
-    # Remove diagnonal from loss
-    product_ = product - 2. * torch.diag(torch.diag(product))
-    # Maxmize the minimum theta.
-    loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
+    if args.angular_loss_type in ['mma', 'cosine', 'orthogonal']:
+        product = torch.matmul(weight_, weight_.t())
+
+    if args.angular_loss_type == 'mma':
+        # Remove diagnonal from loss
+        product_ = product - 2. * torch.diag(torch.diag(product))
+        # Maxmize the minimum theta.
+        loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
+    elif args.angular_loss_type == 'cosine':
+        # Remove diagnonal from loss
+        product_ = product - 2. * torch.diag(torch.diag(product))
+        loss = product_.max(dim=1)[0].clamp(-0.99999, 0.99999).mean()
+    elif args.angular_loss_type == 's-kernel':
+        size = weight_.size(0)
+        diff = weight_.view(size, 1, -1) - weight_.view(1, size, -1)
+        norm = diff.norm(p=2, dim=-1)[tuple(torch.triu_indices(size, size, 1))]
+
+        # diff = []
+        # for i in range(weight_.size(0)-1):
+        #     diff.append(weight_[i] - weight_[i+1:])
+        # norm = torch.cat(diff).norm(p=2, dim=1)
+
+        if args.loss_skernel_s > 0:
+            loss = norm.pow(-args.loss_skernel_s).mean()
+        elif args.loss_skernel_s == 0:
+            loss = -torch.log(norm).mean()
+
+    elif args.angular_loss_type == 'orthogonal':
+        product_ = product - torch.diag(torch.diag(product))
+        loss = torch.pow(product_.norm(), 2) * 0.5
+    else:
+         print('Unsupported angular loss type！')
 
     return loss
 
