@@ -94,21 +94,22 @@ parser.add_argument('--gpu-id', default='0', type=str,
 args = parser.parse_args()
 
 # ------local config------ #
-args.gpu_id = '1'
+args.gpu_id = '0'
 
 args.dataset = 'cifar100'
-args.arch = 'densenet'
-args.block_name = 'basicblock'
-args.compressionRate = 1
-args.depth = 40
-args.growthRate = 12
-args.weight_decay = 1e-4
+args.arch = 'vgg19'
+args.lr = 0.01
 set_gl_variable(linear=LinearNorm, normlinear=None)
-args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_densenet-40-12_norm-none_angular-all-0.03'
+args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_vgg19_norm-none_angular-all-0.07'
+
+args.record_min_angle = True
 
 args.angular_loss_classify = True
 args.angular_loss_hidden = True
-args.angular_loss_weight = 0.0
+args.angular_loss_weight = 0.07
+args.angular_loss_type = 'mma'      # mma, cosine, s-kernel, orthogonal
+args.loss_skernel_s = 0
+args.loss_skernel_ratio = 0.3
 
 args.loss_type = 'softmax'         # softmax, cosine, theta
 args.loss_margin = 0               # only effective when loss is cosine or theta
@@ -135,10 +136,9 @@ args.rl_change_epoch = 122
 args.rl_second_radius = 4.0
 args.rl_second_weight = 0.02
 
-args.gamma = 0.1
-args.train_batch = 64
-args.schedule = [150, 225]
-args.epochs = 300
+args.train_batch = 128
+args.schedule = [81, 122]
+args.epochs = 164
 
 args.tensorboard_paras = ['.g', '.v', '.lens']
 
