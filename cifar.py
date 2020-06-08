@@ -97,13 +97,14 @@ args = parser.parse_args()
 args.gpu_id = '1'
 
 args.dataset = 'cifar100'
-args.arch = 'wrn'
-args.depth = 16
-args.widen_factor = 8
-args.drop = 0.3
-args.weight_decay = 5e-4
+args.arch = 'densenet'
+args.block_name = 'basicblock'
+args.compressionRate = 1
+args.depth = 40
+args.growthRate = 12
+args.weight_decay = 1e-4
 set_gl_variable(linear=LinearNorm, normlinear=None)
-args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_wrn-16-8_norm-none_angular-all-0.03'
+args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_densenet-40-12_norm-none_angular-all-0.03'
 
 args.angular_loss_classify = True
 args.angular_loss_hidden = True
@@ -134,10 +135,10 @@ args.rl_change_epoch = 122
 args.rl_second_radius = 4.0
 args.rl_second_weight = 0.02
 
-args.gamma = 0.2
-args.train_batch = 128
-args.schedule = [60, 120, 160]
-args.epochs = 200
+args.gamma = 0.1
+args.train_batch = 64
+args.schedule = [150, 225]
+args.epochs = 300
 
 args.tensorboard_paras = ['.g', '.v', '.lens']
 
@@ -173,6 +174,7 @@ if use_cuda:
 # still need to set the work_init_fn to random.seed in train_dataloader, if multi numworkers
 
 best_acc = 0  # best test accuracy
+batch_iters = 0  # record　the iterations of batches　
 
 def main():
     global best_acc
@@ -346,6 +348,7 @@ def main():
     print(best_acc)
 
 def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
+    global batch_iters
     # switch to train mode
     model.train()
 
@@ -409,6 +412,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                     if args.angular_loss_weight != 0:
                         loss = loss + args.angular_loss_weight * angular_loss_hidden
 
+        if args.record_min_angle == True and batch_iters % args.print_freq == 0:
+            for name, m in model.module.named_modules():
+                if isinstance(m, (custom.Linear_Class, custom.Con2d_Class)):
+                    min_angle = get_min_angle(m.weight)
+                    add_summary_value(tb_summary_writer, 'Min_angle/' + name, min_angle, batch_iters)
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -427,6 +436,8 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
                   'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                       epoch, batch_idx, len(trainloader), batch_time=batch_time,
                       data_time=data_time, loss=losses, top1=top1, top5=top5))
+
+        batch_iters += 1
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
@@ -581,6 +592,19 @@ def get_L2norm_loss_self_driven(x):
     return args.weight_L2norm * l
 
 
+def get_min_angle(weight):
+    # for convolution layers, flatten
+    if weight.dim() > 2:
+        weight = weight.view(weight.size(0), -1)
+
+    # 　compute minimum angle
+    weight_ = F.normalize(weight, p=2, dim=1)
+    product = torch.matmul(weight_, weight_.t())
+    min_angle = torch.acos((product - 2. * torch.diag(torch.diag(product))).max()).item() / math.pi * 180
+
+    return min_angle
+
+
 def get_angular_loss(weight):
     '''
     :param weight: parameter of model, out_features *　in_features
@@ -590,14 +614,49 @@ def get_angular_loss(weight):
     if weight.dim() > 2:
         weight = weight.view(weight.size(0), -1)
 
+    if args.angular_loss_type == 's-kernel':
+        total = weight.size(0)
+        num = math.ceil(total * args.loss_skernel_ratio)
+        if num == 1:
+            print('num is one！!!')
+        index = torch.randperm(total)[:num]
+        weight = weight[index]
+
     # Dot product of normalized prototypes is cosine similarity.
     weight_ = F.normalize(weight, p=2, dim=1)
-    product = torch.matmul(weight_, weight_.t())
 
-    # Remove diagnonal from loss
-    product_ = product - 2. * torch.diag(torch.diag(product))
-    # Maxmize the minimum theta.
-    loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
+    if args.angular_loss_type in ['mma', 'cosine', 'orthogonal']:
+        product = torch.matmul(weight_, weight_.t())
+
+    if args.angular_loss_type == 'mma':
+        # Remove diagnonal from loss
+        product_ = product - 2. * torch.diag(torch.diag(product))
+        # Maxmize the minimum theta.
+        loss = -torch.acos(product_.max(dim=1)[0].clamp(-0.99999, 0.99999)).mean()
+    elif args.angular_loss_type == 'cosine':
+        # Remove diagnonal from loss
+        product_ = product - 2. * torch.diag(torch.diag(product))
+        loss = product_.max(dim=1)[0].clamp(-0.99999, 0.99999).mean()
+    elif args.angular_loss_type == 's-kernel':
+        size = weight_.size(0)
+        diff = weight_.view(size, 1, -1) - weight_.view(1, size, -1)
+        norm = diff.norm(p=2, dim=-1)[tuple(torch.triu_indices(size, size, 1))]
+
+        # diff = []
+        # for i in range(weight_.size(0)-1):
+        #     diff.append(weight_[i] - weight_[i+1:])
+        # norm = torch.cat(diff).norm(p=2, dim=1)
+
+        if args.loss_skernel_s > 0:
+            loss = norm.pow(-args.loss_skernel_s).mean()
+        elif args.loss_skernel_s == 0:
+            loss = -torch.log(norm).mean()
+
+    elif args.angular_loss_type == 'orthogonal':
+        product_ = product - torch.diag(torch.diag(product))
+        loss = torch.pow(product_.norm(), 2) * 0.5
+    else:
+         print('Unsupported angular loss type！')
 
     return loss
 
