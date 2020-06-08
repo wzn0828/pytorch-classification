@@ -108,7 +108,7 @@ args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_densenet-40-12_norm
 
 args.angular_loss_classify = True
 args.angular_loss_hidden = True
-args.angular_loss_weight = 0.03
+args.angular_loss_weight = 0.0
 
 args.loss_type = 'softmax'         # softmax, cosine, theta
 args.loss_margin = 0               # only effective when loss is cosine or theta

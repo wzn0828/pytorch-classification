@@ -92,23 +92,26 @@ args = parser.parse_args()
 # ------local config------ #
 args.gpu_id = '0,1,2,3'
 args.data = '/media/SSD_1TB/wzn/Datasets/ILSVRC'
-args.arch = 'resnet18'
+args.arch = 'resnet50'
 
-args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet18'
+args.checkpoint = 'Experiments/ImageNet/Imagenet_resnet50_pretrained_finetune'
 
 args.angular_loss_classify = True
 args.angular_loss_hidden = True
-args.angular_loss_weight = 0.03
+args.angular_loss_weight = 0
 
-args.evaluate = False
-args.pretrained = False
+args.evaluate = True
+args.pretrained = True
+
+args.lr = 0.0001
 
 args.gamma = 0.1
 args.train_batch = 256
 args.test_batch = 1024
-args.schedule = [30, 60]
+args.schedule = [30, 60, 90]
 args.workers = 8
-args.epochs = 90
+args.epochs = 120
+args.start_epoch = 90
 
 args.manualSeed = 123
 args.print_freq = 10
