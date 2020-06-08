@@ -101,7 +101,6 @@ args.arch = 'vgg19'
 args.lr = 0.01
 set_gl_variable(linear=LinearNorm, normlinear=None)
 args.checkpoint = 'Experiments/AngularLoss/CIFAR100/cifar100_vgg19_norm-none_angular-all-0.07'
-
 args.record_min_angle = True
 
 args.angular_loss_classify = True
