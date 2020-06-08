@@ -210,15 +210,15 @@ def main():
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title, resume=True)
     else:
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
-        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
+        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.TOP1', 'Valid Acc.TOP5'])
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
                                                         milestones=args.schedule, gamma=args.gamma, last_epoch=start_epoch - 1)
 
     if args.evaluate:
         # print('\nEvaluation only')
-        test_loss, test_acc = test(val_loader, model, criterion, start_epoch, use_cuda)
-        print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
+        test_loss, test_acc, test_acc_top5 = test(val_loader, model, criterion, start_epoch, use_cuda)
+        print(' Test Loss:  %.8f, Test Acc TOP1:  %.2f, Test Acc TOP5:  %.2f' % (test_loss, test_acc, test_acc_top5))
         # return
 
     # Train and val
@@ -230,10 +230,10 @@ def main():
         print('\nEpoch: [%d | %d] LR: %f' % (epoch + 1, args.epochs, state['lr']))
 
         train_loss, train_acc = train(train_loader, model, criterion, optimizer, epoch+1, use_cuda)
-        test_loss, test_acc = test(val_loader, model, criterion, epoch+1, use_cuda)
+        test_loss, test_acc, test_acc_top5 = test(val_loader, model, criterion, epoch+1, use_cuda)
 
         # append logger file
-        logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
+        logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc, test_acc_top5])
 
         # save model
         is_best = test_acc > best_acc
@@ -242,6 +242,7 @@ def main():
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'acc': test_acc,
+                'acc_top5': test_acc_top5,
                 'best_acc': best_acc,
                 'optimizer': optimizer.state_dict(),
             }, is_best, checkpoint=args.checkpoint)
@@ -389,7 +390,7 @@ def test(val_loader, model, criterion, epoch, use_cuda):
         add_summary_value(tb_summary_writer, 'Top1/test', top1.avg, epoch)
         add_summary_value(tb_summary_writer, 'Top5/test', top5.avg, epoch)
 
-    return (losses.avg, top1.avg)
+    return (losses.avg, top1.avg, top5.avg)
 
 def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth.tar'):
     filepath = os.path.join(checkpoint, filename)
