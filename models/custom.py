@@ -457,16 +457,24 @@ class LinearNorm(nn.Linear):
         if _normlinear == '27':
             self.attention = SEModule(in_features // out_features)
 
+        elif _normlinear == '9':
+            self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
 
     def forward(self, x):
 
         # weigth length
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
         self.lens.data = lens.data
+        feature_len = x.norm(dim=1, keepdim=True)
 
         if _normlinear == '17':
             x_ = x
             weight = self.weight / (lens.detach())  # out_feature*512
+
+        elif _normlinear == '9':
+            x_ = self.v * x / feature_len  # batch*512
+            weight = self.weight / lens  # out_feature*512
+            self.g.data = lens.data
 
         elif _normlinear == '20':
             x_ = x
@@ -906,31 +914,30 @@ class ArcClassify(nn.Linear):
 
 class HeatedupClassify(nn.Linear):
 
-    def __init__(self, in_features, out_features, bias=False, eps=1e-8):
-        super(HeatedupClassify, self).__init__(in_features, out_features, bias)
+    def __init__(self, in_features, out_features, eps=1e-8):
+        super(HeatedupClassify, self).__init__(in_features, out_features, _bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
         self.eps = eps
 
         self.lens = nn.Parameter(torch.ones(out_features, 1))
+        self.g = nn.Parameter(torch.ones(out_features, 1))
+
         self.x = []
 
         self.scale_large = _scale_large
         self.scale_small = _scale_small
-        self.g = nn.Parameter(torch.ones(out_features, 1))
 
-    def forward(self, x, label):
+    def forward(self, x):
 
         # weight length
-        lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
+        lens = self.weight.norm(dim=1, keepdim=True)  # out_feature*1
         self.lens.data = lens.data
-
-        # feature norm
-        feature_len = torch.sqrt(x.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
+        self.g.data = lens.data
 
         # compute costheta
-        weight = self.weight / lens  # out_feature*512
-        normalized_x = x / feature_len
+        weight = F.normalize(self.weight, p=2, dim=1)  # out_feature*512
+        normalized_x = F.normalize(x, p=2, dim=1)
         cos_theta = torch.mm(normalized_x, weight.t())  # B x class_num#
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
 
@@ -938,14 +945,13 @@ class HeatedupClassify(nn.Linear):
         # identify the classified wrong and right
         if self.scale_large == self.scale_small:
             scale = self.scale_large
-        else:
-            arg_max = cos_theta.argmax(dim=1)
-            right = arg_max == label
-
-            scale = self.weight.new_ones(label.size())
-            scale[right] = self.scale_small
-            scale[right==False] = self.scale_large
-            scale.unsqueeze_(dim=1)
+        # else:
+        #     arg_max = cos_theta.argmax(dim=1)
+        #     right = arg_max == label
+        #     scale = self.weight.new_ones(label.size())
+        #     scale[right] = self.scale_small
+        #     scale[right==False] = self.scale_large
+        #     scale.unsqueeze_(dim=1)
 
         x_ = scale * normalized_x  # batch*512
 
