@@ -462,11 +462,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     add_summary_value(tb_summary_writer, 'Scalars/X_Lens/train', x_lens.mean().item(), epoch)
 
     # tensorboard weights cosine and weight norm in classification layer
-    mean_cosine, max_cosine, weight_norm = compute_weight_cosine(model)
+    cosine_similarity, mean_cosine, max_cosine, weight_norm = compute_weight_cosine(model)
     add_summary_value(tb_summary_writer, 'Scalars/Weights_Mean_Cosine', mean_cosine, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Weights_Max_Cosine', max_cosine, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Weight_Length_Mean', weight_norm.mean(), epoch)
     tb_summary_writer.add_histogram('Hists/Weight_Norm', weight_norm, epoch)
+    tb_summary_writer.add_histogram('Hists/Weight_Cosine', cosine_similarity, epoch)
 
     if args.tensorboard_paras is not None:
         for name, para in model.module.named_parameters():
@@ -668,7 +669,7 @@ def compute_weight_cosine(model):
     cosine_similarity = torch.matmul(weight, weight.t()).tril(diagonal=-1)
     mean_cosine_similarity = cosine_similarity.sum() / ((weight.size(0) * (weight.size(0) - 1.0)) / 2.0)
 
-    return mean_cosine_similarity, cosine_similarity.max(), weight_norm
+    return cosine_similarity, mean_cosine_similarity, cosine_similarity.max(), weight_norm
 
 def similarity_loss(cosine, label):
     nB = len(cosine)  # Batchsize
