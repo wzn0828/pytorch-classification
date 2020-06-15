@@ -28,6 +28,7 @@ import models.custom as custom
 from utils.misc import add_summary_value
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
 # from libs import InPlaceABNSync as libs_IABNS
+pi = math.pi
 
 try:
     import tensorboardX as tb
@@ -673,14 +674,23 @@ def compute_weight_cosine(model):
 
 def similarity_loss(cosine, label):
     nB = len(cosine)  # Batchsize
+    num_class = cosine.size(1)
 
-    # pick the labeled cos theta
+    # pick the labeled  cos  theta
     idx_ = torch.arange(0, nB, dtype=torch.long)
     labeled_cos = cosine[idx_, label]  # B
+    labeled_theta = torch.acos(labeled_cos)  # B
+
+    # pick the non-labeled  cos  theta
+    rest_index = torch.ones_like(cosine).bool()
+    rest_index[idx_, label] = False
+
+    rest_cos = cosine[rest_index].view(nB, -1)
+
+    theta = torch.acos(cosine)
+    rest_theta = theta[rest_index].view(nB, -1)
 
     if args.loss_margin != 0:
-        labeled_theta = torch.acos(labeled_cos)  # B
-
         if args.loss_only_margin_right == True:
             loss_margin = args.loss_margin * (cosine.argmax(dim=1) == label).to(torch.float)
         else:
@@ -692,17 +702,53 @@ def similarity_loss(cosine, label):
         if args.loss_type == 'cosine':
             labeled_cos = torch.cos(labeled_theta)
 
-    if args.loss_type == 'cosine':
-        return (labeled_cos - 1.0).pow(2).mean()
+    if args.loss_type == 'label_cosine_mse':
+        loss = (1.0 - labeled_cos).pow(2).mean()
 
-    elif args.loss_type == 'theta':
-        if args.loss_margin == 0:
-            labeled_theta = torch.acos(labeled_cos)  # B
+    elif args.loss_type == 'label_cosine_l1':
+        loss = (1.0 - labeled_cos).mean()
 
-        return labeled_theta.pow(2).mean()
+    elif args.loss_type == 'label_theta_mse':
+        loss = labeled_theta.pow(2).mean()
+
+    elif args.loss_type == 'label_theta_l1':
+        loss = labeled_theta.mean()
+
+
+    elif args.loss_type == 'all_cosine_mse_sum':
+        loss = (1.0 - labeled_cos).pow(2).mean() + (1.0 + rest_cos).pow(2).sum(dim=1).mean()
+        loss = 0.5 * loss
+
+    elif args.loss_type == 'all_cosine_mse_ave':
+        loss = (1.0 - labeled_cos).pow(2).mean() + (1.0 + rest_cos).pow(2).mean()
+        loss = 0.5 * loss
+
+    elif args.loss_type == 'all_cosine_l1_sum':
+        loss = (1.0 - labeled_cos).mean() + (1.0 + rest_cos).sum(dim=1).mean()
+
+    elif args.loss_type == 'all_cosine_l1_ave':
+        loss = (1.0 - labeled_cos).mean() + (1.0 + rest_cos).mean()
+
+
+    elif args.loss_type == 'all_theta_mse_sum':
+        loss = labeled_theta.pow(2).mean() + (rest_theta - pi).pow(2).sum(dim=1).mean()
+        loss = 0.5 * loss
+
+    elif args.loss_type == 'all_theta_mse_ave':
+        loss = labeled_theta.pow(2).mean() + (rest_theta - pi).pow(2).mean()
+        loss = 0.5 * loss
+
+    elif args.loss_type == 'all_theta_l1_sum':
+        loss = labeled_theta.mean() - (rest_theta - pi).sum(dim=1).mean()
+
+    elif args.loss_type == 'all_theta_l1_ave':
+        loss = labeled_theta.mean() - (rest_theta - pi).mean()
+
 
     else:
-        return 0
+        raise AssertionError('_detach is not valid!')
+
+    return args.loss_scale*loss
 
 if __name__ == '__main__':
     main()
