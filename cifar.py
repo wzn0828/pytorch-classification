@@ -318,7 +318,8 @@ def main():
                 model.module.classifier.scale_large = args.scale_second_large
 
         if args.margin_change and epoch > args.margin_change_epoch:
-            model.module.classifier.m = args.margin_second
+            model.module.classifier.margin_theta = args.margin_second_theta
+            model.module.classifier.margin_cosine = args.margin_second_cosine
 
         train_loss, train_acc = train(trainloader, model, criterion, optimizer, epoch+1, use_cuda)
 
