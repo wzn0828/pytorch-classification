@@ -15,9 +15,11 @@ _scale_linear = 16.0
 _scale_large = 16.0
 _scale_small = 4.0
 
-_m = 1.0
+_margin_theta = 0.0
+_margin_cosine = 0.0
 _detach_diff = True
 _m_mode = 'fix'
+_margin_type = 'all'    # 'all', 'label'
 
 _bias = True
 
@@ -25,9 +27,11 @@ _feature_BN = False
 
 _only_margin_right = False
 
+
 def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=None, normlinear=None, normconv2d=None,
-                    coeff=True, scale_linear=16.0, detach_diff=False, margin=0., m_mode='fix', bias=True,
-                    scale_large=16.0, scale_small=4.0, feature_BN=False, only_margin_right=False):
+                    coeff=True, scale_linear=16.0, detach_diff=False, margin_theta=0., margin_cosine=0., m_mode='fix',
+                    margin_type='all', bias=True, scale_large=16.0, scale_small=4.0, feature_BN=False,
+                    only_margin_right=False):
     global Linear_Class
     Linear_Class = linear
 
@@ -61,13 +65,21 @@ def set_gl_variable(linear=nn.Linear, conv=nn.Conv2d, bn=nn.BatchNorm2d, detach=
     if detach_diff is not None:
         _detach_diff = detach_diff
 
-    global _m
-    if margin is not None:
-        _m = margin
+    global _margin_theta
+    if margin_theta is not None:
+        _margin_theta = margin_theta
+
+    global _margin_cosine
+    if margin_cosine is not None:
+        _margin_cosine = margin_cosine
 
     global _m_mode
     if m_mode is not None:
         _m_mode = m_mode
+
+    global _margin_type
+    if margin_type is not None:
+        _margin_type = margin_type
 
     global _bias
     if bias is not None:
@@ -823,8 +835,8 @@ linear_norm16 = Linear_Norm16.apply
 
 class ArcClassify(nn.Linear):
     # implementation of additive margin softmax loss in https://arxiv.org/abs/1801.05599
-    def __init__(self, in_features, out_features, bias=False, eps=1e-8):
-        super(ArcClassify, self).__init__(in_features, out_features, bias)
+    def __init__(self, in_features, out_features, eps=1e-8):
+        super(ArcClassify, self).__init__(in_features, out_features, _bias)
         # self.register_buffer('eps', torch.tensor(eps))
 
         self.eps = eps
@@ -835,7 +847,9 @@ class ArcClassify(nn.Linear):
 
         self.detach_diff = _detach_diff
         self.m_mode = _m_mode
-        self.m = _m # the margin value, default is 0.5
+        self.margin_theta = _margin_theta  # the margin theta value, default is 0.5
+        self.margin_cosine = _margin_cosine  # the margin cosine value, default is 0.5
+        self.margin_type = _margin_type
 
         # self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
         self.v = _scale_linear
@@ -860,51 +874,67 @@ class ArcClassify(nn.Linear):
         feature_len = torch.sqrt(embbedings.pow(2).sum(dim=1, keepdim=True).clamp_(min=self.eps))  # batch*1
         x_ = embbedings / feature_len  # batch*512
 
-        # costheta
-        cos_theta = torch.mm(x_, weight.t())  # B x class_num#
-        cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
+        # cosine
+        cosine_ori = torch.mm(x_, weight.t())  # B x class_num#
+        cosine = cosine_ori.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
         self.x.append(self.v * x_)
 
-        if not self.training or self.m==0.0:
-            output = cos_theta * 1.0           # B x class_num
-            output *= self.v
+        if not self.training or (self.margin_theta == 0 and self.margin_cosine == 0):
+            output = cosine           # B x class_num
+        elif self.margin_type == 'label':
+            if self.margin_theta != 0:
+                nB = len(embbedings)    # Batchsize
+
+                # pick the labeled cos theta
+                idx_ = torch.arange(0, nB, dtype=torch.long)
+                labeled_cos = cosine[idx_, label]            # B
+                # compute labeled theta
+                labeled_theta = torch.acos(labeled_cos)         # B
+                #compute the added margin
+                m = self.get_m(labeled_theta)
+                if self.only_margin_right:
+                    m *= (cosine.argmax(dim=1)==label).to(torch.float)
+                # add margin
+                labeled_theta += m                         # B
+                labeled_theta.clamp_(max=math.pi)
+                # compute the diff and expand it
+                labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
+                diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)  # B x class_num
+                if self.detach_diff:
+                    diff_expand.detach_()
+                # add diff and multiply the scale
+                cosine = cosine + diff_expand                     # B x class_num
+            output = cosine - self.margin_cosine * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)
+        elif self.margin_type == 'all':
+            if self.margin_theta != 0:
+                theta = torch.acos(cosine)
+                theta += self.margin_theta
+                theta.clamp_(min=0.0, max=math.pi)
+                diff = torch.cos(theta) - cosine
+                if self.detach_diff:
+                    diff.detach_()
+                cosine = cosine + diff
+            output = cosine - self.margin_cosine
         else:
-            nB = len(embbedings)    # Batchsize
+            raise AssertionError('Invalid margin_type!')
 
-            # pick the labeled cos theta
-            idx_ = torch.arange(0, nB, dtype=torch.long)
-            labeled_cos = cos_theta[idx_, label]            # B
-            # compute labeled theta
-            labeled_theta = torch.acos(labeled_cos)         # B
-            #compute the added margin
-            m = self.get_m(labeled_theta)
-            if self.only_margin_right:
-                m *= (cos_theta.argmax(dim=1)==label).to(torch.float)
-            # add margin
-            labeled_theta += m                         # B
-            labeled_theta.clamp_(max=math.pi)
-            # compute the diff and expand it
-            labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
-            diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)  # B x class_num
-            if self.detach_diff:
-                diff_expand.detach_()
-            # add diff and multiply the scale
-            output = cos_theta * 1.0 + diff_expand                     # B x class_num
-            output *= self.v
+        output *= self.v
+        if self.bias is not None:
+            output = output + self.bias
 
-        return output, cos_theta
+        return output, cosine_ori
 
     def get_m(self, theta):
         if self.m_mode == 'larger':
-            m = (self.m * theta / math.pi).detach()
+            m = (self.margin_theta * theta / math.pi).detach()
         elif self.m_mode == 'smaller':
-            m = (self.m -theta * self.m / math.pi).detach()
+            m = (self.margin_theta - theta * self.margin_theta / math.pi).detach()
         elif self.m_mode == 'fix':
-            m = self.m
+            m = self.margin_theta
         elif self.m_mode == 'larger_sqrt':
-            m = (self.m * torch.sqrt(theta)).detach()
+            m = (self.margin_theta * torch.sqrt(theta)).detach()
 
         return m
 
