@@ -372,7 +372,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         # inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
-        outputs, features = model(inputs)
+        outputs, features = model(inputs, targets)
         outputs, cosine = outputs
         if args.loss_type == 'softmax':
             pred = outputs
@@ -515,7 +515,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # inputs, targets = torch.autograd.Variable(inputs, volatile=True), torch.autograd.Variable(targets)
 
             # compute output
-            outputs, features = model(inputs)
+            outputs, features = model(inputs, targets)
             outputs, cosine = outputs
 
             if args.loss_type == 'softmax':
