@@ -934,6 +934,31 @@ class ArcClassify(nn.Linear):
                 # add diff and multiply the scale
                 cosine = cosine + diff_expand                     # B x class_num
             output = cosine - self.margin_cosine * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)
+        elif self.margin_type == 'max':
+            label = cosine.argmax(dim=1)
+            if self.margin_theta != 0:
+                nB = len(embbedings)    # Batchsize
+
+                # pick the labeled cos theta
+                idx_ = torch.arange(0, nB, dtype=torch.long)
+                labeled_cos = cosine[idx_, label]            # B
+                # compute labeled theta
+                labeled_theta = torch.acos(labeled_cos)         # B
+                #compute the added margin
+                m = self.get_m(labeled_theta)
+                if self.only_margin_right:
+                    m *= (cosine.argmax(dim=1)==label).to(torch.float)
+                # add margin
+                labeled_theta += m                         # B
+                labeled_theta.clamp_(max=math.pi)
+                # compute the diff and expand it
+                labeled_diff = torch.cos(labeled_theta) - labeled_cos  # B
+                diff_expand = labeled_diff.unsqueeze(dim=1) * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)  # B x class_num
+                if self.detach_diff:
+                    diff_expand.detach_()
+                # add diff and multiply the scale
+                cosine = cosine + diff_expand                     # B x class_num
+            output = cosine - self.margin_cosine * F.one_hot(label, num_classes=self.out_features).to(dtype=torch.float)
         elif self.margin_type == 'all':
             if self.margin_theta != 0:
                 theta = torch.acos(cosine)
