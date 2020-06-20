@@ -876,8 +876,9 @@ class ArcClassify(nn.Linear):
         x_ = embbedings / feature_len  # batch*512
 
         # cosine
-        cosine_ori = torch.mm(x_, weight.t())  # B x class_num#
-        cosine = cosine_ori.clamp(-1, 1)  # for numerical stability     # B x class_num
+        cosine_ori = torch.mm(x_, weight.t().detach())  # B x class_num#
+        cosine = torch.mm(x_, weight.t())  # B x class_num#
+        cosine = cosine.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
         self.x.append(self.v * x_)

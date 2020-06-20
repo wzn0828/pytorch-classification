@@ -356,6 +356,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+    closer_losses = AverageMeter()
     losses_norm = AverageMeter()
     losses_classify_angular = AverageMeter()
     losses_hidden_angular = AverageMeter()
@@ -385,6 +386,12 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         losses.update(loss.item(), inputs.size(0))
         top1.update(prec1.item(), inputs.size(0))
         top5.update(prec5.item(), inputs.size(0))
+
+        # closer loss
+        if args.closer_loss and epoch > args.closer_loss_epoch:
+            closerloss = closer_loss(cosine, targets)
+            closer_losses.update(closerloss.item())
+            loss += args.closer_loss_weight * closerloss
 
         # larger norm more transferable: SAFN
         if args.ring_loss:
@@ -441,6 +448,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
         batch_iters += 1
 
     add_summary_value(tb_summary_writer, 'Loss/train', losses.avg, epoch)
+    add_summary_value(tb_summary_writer, 'Scalars/Closer_loss', closer_losses.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Loss_norm_train', losses_norm.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_Classify', losses_classify_angular.avg, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Angular_Loss_Hidden', losses_hidden_angular.avg, epoch)
@@ -747,9 +755,51 @@ def similarity_loss(cosine, label):
 
 
     else:
-        raise AssertionError('_detach is not valid!')
+        raise AssertionError('loss_type is not valid!')
 
     return args.loss_scale*loss
+
+
+def closer_loss(cosine, target):
+    if args.closer_loss_object == 'mintheta':
+        nB = len(cosine)  # Batchsize
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        index = cosine.argmax(dim=1)
+    elif args.closer_loss_object == 'label':
+        nB = len(cosine)  # Batchsize
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        index = target
+    elif args.closer_loss_object == 'right':
+        nB = len(cosine)  # Batchsize
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        mask = cosine.argmax(dim=1) == target
+        idx_ = idx_[mask]
+        index = cosine.argmax(dim=1)[mask]
+    else:
+        raise AssertionError('closer_loss_object is not valid!')
+
+    # pick the labeled  cos  theta
+    labeled_cos = cosine[idx_, index]  # B
+    labeled_theta = torch.acos(labeled_cos)  # B
+
+    if args.closer_loss_type == 'cosine_mse':
+        loss = 0.5 * (1.0 - labeled_cos).pow(2).mean()
+
+    elif args.closer_loss_type == 'cosine_l1':
+        loss = (1.0 - labeled_cos).mean()
+
+    elif args.closer_loss_type == 'theta_mse':
+        loss = 0.5 * labeled_theta.pow(2).mean()
+
+    elif args.closer_loss_type == 'theta_l1':
+        loss = labeled_theta.mean()
+
+    else:
+        raise AssertionError('closer_loss_type is not valid!')
+
+    return loss
+
+
 
 if __name__ == '__main__':
     main()
