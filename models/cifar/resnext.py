@@ -111,7 +111,7 @@ class CifarResNeXt(nn.Module):
                                  ResNeXtBottleneck(out_channels, out_channels, 1, self.cardinality, self.widen_factor))
         return block
 
-    def forward(self, x):
+    def forward(self, x, label):
         x = self.conv_1_3x3.forward(x)
         x = F.relu(self.bn_1.forward(x), inplace=True)
         x = self.stage_1.forward(x)
@@ -119,7 +119,7 @@ class CifarResNeXt(nn.Module):
         x = self.stage_3.forward(x)
         x = F.avg_pool2d(x, 8, 1)
         feature = x.view(-1, 1024)
-        return self.classifier(feature), feature
+        return self.classifier(feature, label), feature
 
 def resnext(**kwargs):
     """Constructs a ResNeXt.

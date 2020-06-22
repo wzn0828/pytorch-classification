@@ -139,7 +139,7 @@ class DenseNet(nn.Module):
         return Transition(inplanes, outplanes)
 
 
-    def forward(self, x):
+    def forward(self, x, label):
         x = self.conv1(x)
 
         x = self.trans1(self.dense1(x)) 
@@ -150,7 +150,7 @@ class DenseNet(nn.Module):
 
         x = self.avgpool(x)
         feature = x.view(x.size(0), -1)
-        x = self.classifier(feature)
+        x = self.classifier(feature, label)
 
         return x, feature
 
