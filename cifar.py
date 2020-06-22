@@ -286,7 +286,7 @@ def main():
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title, resume=True)
     else:
         logger = Logger(os.path.join(args.checkpoint, 'log.txt'), title=title)
-        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.'])
+        logger.set_names(['Learning Rate', 'Train Loss', 'Valid Loss', 'Train Acc.', 'Valid Acc.TOP1', 'Valid Acc.TOP5'])
 
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
                                                         milestones=args.schedule, gamma=args.gamma, last_epoch=start_epoch-1)
@@ -300,7 +300,7 @@ def main():
 
     if args.evaluate:
         # print('\nEvaluation only')
-        test_loss, test_acc = test(testloader, model, criterion, start_epoch, use_cuda)
+        test_loss, test_acc, test_acc_top5 = test(testloader, model, criterion, start_epoch, use_cuda)
         print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
         # return
 
@@ -325,10 +325,10 @@ def main():
 
         lr_scheduler.step(epoch+1)
 
-        test_loss, test_acc = test(testloader, model, criterion, epoch+1, use_cuda)
+        test_loss, test_acc, test_acc_top5 = test(testloader, model, criterion, epoch+1, use_cuda)
 
         # append logger file
-        logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc])
+        logger.append([state['lr'], train_loss, test_loss, train_acc, test_acc, test_acc_top5])
 
         # save model
         is_best = test_acc > best_acc
@@ -568,7 +568,7 @@ def test(testloader, model, criterion, epoch, use_cuda):
         tb_summary_writer.add_histogram('Hists/X_Lens/test', x_lens, epoch)
         add_summary_value(tb_summary_writer, 'Scalars/X_Lens/test', x_lens.mean().item(), epoch)
 
-    return (losses.avg, top1.avg)
+    return (losses.avg, top1.avg, top5.avg)
 
 def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='model.pth.tar'):
     filepath = os.path.join(checkpoint, filename)
