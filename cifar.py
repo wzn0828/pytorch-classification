@@ -783,9 +783,10 @@ def closer_loss(cosine, target):
     labeled_theta = torch.acos(labeled_cos)  # B
 
     # add margin to labeled_theta, cosine have no margin for current time
-    margin = args.closer_loss_margin / 180.0 * pi
-    zero_tensor = torch.zeros_like(labeled_theta)
-    labeled_theta = torch.max(labeled_theta - margin, zero_tensor)
+    if args.closer_loss_margin != 0:
+        margin = args.closer_loss_margin / 180.0 * pi
+        zero_tensor = torch.zeros_like(labeled_theta)
+        labeled_theta = torch.max(labeled_theta - margin, zero_tensor)
 
     if args.closer_loss_type == 'cosine_mse':
         loss = 0.5 * (1.0 - labeled_cos).pow(2).mean()
