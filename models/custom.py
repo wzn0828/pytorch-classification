@@ -473,7 +473,7 @@ class LinearNorm(nn.Linear):
         elif _normlinear == '9':
             self.register_buffer('v', self.weight.data.new_full((1, 1), _scale_linear))
 
-    def forward(self, x):
+    def forward(self, x, label):
 
         # weigth length
         lens = torch.sqrt((self.weight.pow(2).sum(dim=1, keepdim=True)).clamp(min=self.eps))  # out_feature*1
@@ -540,7 +540,7 @@ class LinearNorm(nn.Linear):
             raise AssertionError('_norm is not valid!')
 
         # costheta
-        cos_theta = torch.mm(x_ / x_.norm(dim=1, keepdim=True), (weight/weight.norm(dim=1, keepdim=True)).t())  # B x class_num#
+        cos_theta = torch.mm(F.normalize(x, p=2, dim=1), F.normalize(self.weight, p=2, dim=1).t().detach())  # B x class_num#
         cos_theta = cos_theta.clamp(-1, 1)  # for numerical stability     # B x class_num
 
         self.x = []
