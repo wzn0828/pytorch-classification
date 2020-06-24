@@ -389,7 +389,7 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
 
         # closer loss
         if args.closer_loss and epoch > args.closer_loss_epoch:
-            closerloss = closer_loss(cosine, targets)
+            closerloss = closer_loss(cosine, targets, outputs)
             closer_losses.update(closerloss.item())
             loss += args.closer_loss_weight * closerloss
 
@@ -760,11 +760,15 @@ def similarity_loss(cosine, label):
     return args.loss_scale*loss
 
 
-def closer_loss(cosine, target):
+def closer_loss(cosine, target, output):
     if args.closer_loss_object == 'mintheta':
         nB = len(cosine)  # Batchsize
         idx_ = torch.arange(0, nB, dtype=torch.long)
         index = cosine.argmax(dim=1)
+    elif args.closer_loss_object == 'mintheta_fc':
+        nB = len(cosine)  # Batchsize
+        idx_ = torch.arange(0, nB, dtype=torch.long)
+        index = output.argmax(dim=1)
     elif args.closer_loss_object == 'label':
         nB = len(cosine)  # Batchsize
         idx_ = torch.arange(0, nB, dtype=torch.long)
