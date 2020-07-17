@@ -467,9 +467,9 @@ def train(trainloader, model, criterion, optimizer, epoch, use_cuda):
     tb_summary_writer.add_histogram('Hists/Feature_Length/train', feature_norms, epoch)
     add_summary_value(tb_summary_writer, 'Scalars/Feature_Length/train', feature_norms.mean(), epoch)
 
-    x_lens = model.module.classifier.x[0].data.norm(p=2, dim=1, keepdim=True)
-    tb_summary_writer.add_histogram('Hists/X_Lens/train', x_lens, epoch)
-    add_summary_value(tb_summary_writer, 'Scalars/X_Lens/train', x_lens.mean().item(), epoch)
+    # x_lens = model.module.classifier.x[0].data.norm(p=2, dim=1, keepdim=True)
+    # tb_summary_writer.add_histogram('Hists/X_Lens/train', x_lens, epoch)
+    # add_summary_value(tb_summary_writer, 'Scalars/X_Lens/train', x_lens.mean().item(), epoch)
 
     # tensorboard weights cosine and weight norm in classification layer
     cosine_similarity, mean_cosine, max_cosine, weight_norm = compute_weight_cosine(model)
@@ -564,9 +564,9 @@ def test(testloader, model, criterion, epoch, use_cuda):
         tb_summary_writer.add_histogram('Hists/Feature_Length/test', features.norm(dim=1), epoch)
         add_summary_value(tb_summary_writer, 'Scalars/Feature_Length/test', features.norm(dim=1).mean(), epoch)
 
-        x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
-        tb_summary_writer.add_histogram('Hists/X_Lens/test', x_lens, epoch)
-        add_summary_value(tb_summary_writer, 'Scalars/X_Lens/test', x_lens.mean().item(), epoch)
+        # x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
+        # tb_summary_writer.add_histogram('Hists/X_Lens/test', x_lens, epoch)
+        # add_summary_value(tb_summary_writer, 'Scalars/X_Lens/test', x_lens.mean().item(), epoch)
 
     return (losses.avg, top1.avg, top5.avg)
 
