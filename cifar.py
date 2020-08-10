@@ -192,7 +192,7 @@ def main():
             [transforms.RandomCrop(32, padding=4, fill=128),  # fill parameter needs torchvision installed from source
              transforms.RandomHorizontalFlip(), CIFAR10Policy(),
              transforms.ToTensor(),
-             Cutout(n_holes=1, length=16),  # (https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py)
+             Cutout(n_holes=1, length=args.aalength),  # (https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py)
              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
     else:
         transform_train = transforms.Compose([
