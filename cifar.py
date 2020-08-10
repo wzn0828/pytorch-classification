@@ -25,6 +25,9 @@ import models.cifar as models
 from models.custom import *
 import models.custom as custom
 
+from models.autoaugment import CIFAR10Policy
+from models.cutout import Cutout
+
 from utils.misc import add_summary_value
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
 # from libs import InPlaceABNSync as libs_IABNS
@@ -35,7 +38,6 @@ try:
 except ImportError:
     print("tensorboardX is not installed")
     tb = None
-
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -185,12 +187,20 @@ def main():
 
     # Data
     print('==> Preparing dataset %s' % args.dataset)
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
+    if args.auto_augment:
+        transform_train = transforms.Compose(
+            [transforms.RandomCrop(32, padding=4, fill=128),  # fill parameter needs torchvision installed from source
+             transforms.RandomHorizontalFlip(), CIFAR10Policy(),
+             transforms.ToTensor(),
+             Cutout(n_holes=1, length=16),  # (https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py)
+             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
+    else:
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
 
     transform_test = transforms.Compose([
         transforms.ToTensor(),
