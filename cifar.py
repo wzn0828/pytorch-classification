@@ -522,6 +522,11 @@ def test(testloader, model, criterion, epoch, use_cuda):
     # switch to evaluate mode
     model.eval()
 
+    # compute feature center
+    tensor = torch.tensor((), dtype=torch.float32)
+    feature_sum = tensor.new_zeros((args.num_classes, 512))
+    nums = tensor.new_zeros((args.num_classes, 1))
+
     with torch.no_grad():
         end = time.time()
         # bar = Bar('Processing', max=len(testloader))
@@ -536,6 +541,11 @@ def test(testloader, model, criterion, epoch, use_cuda):
             # compute output
             outputs, features = model(inputs, targets)
             outputs, cosine = outputs
+
+            # compute feature center
+            for i in range(len(targets)):
+                feature_sum[targets[i], :] += features[i].cpu()
+                nums[targets[i], :] += 1.0
 
             if args.loss_type == 'softmax':
                 pred = outputs
@@ -577,6 +587,11 @@ def test(testloader, model, criterion, epoch, use_cuda):
         # x_lens = model.module.classifier.x[0].norm(p=2, dim=1, keepdim=True)
         # tb_summary_writer.add_histogram('Hists/X_Lens/test', x_lens, epoch)
         # add_summary_value(tb_summary_writer, 'Scalars/X_Lens/test', x_lens.mean().item(), epoch)
+
+    # compute feature center
+    feature_centre = feature_sum / nums
+    minangle = get_min_angle(feature_centre)
+    print('The minangle between feature embedding is {0}'.format(minangle))
 
     return (losses.avg, top1.avg, top5.avg)
 
