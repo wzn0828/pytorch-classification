@@ -187,14 +187,22 @@ def main():
 
     # Data
     print('==> Preparing dataset %s' % args.dataset)
-    if args.auto_augment:
+    if args.data_augment == 'auto_augment':
         transform_train = transforms.Compose(
             [transforms.RandomCrop(32, padding=4, fill=128),  # fill parameter needs torchvision installed from source
              transforms.RandomHorizontalFlip(), CIFAR10Policy(),
              transforms.ToTensor(),
              Cutout(n_holes=1, length=args.aalength),  # (https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py)
              transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))])
-    else:
+    elif args.data_augment == 'cutout':
+        transform_train = transforms.Compose(
+            [transforms.RandomCrop(32, padding=4),  # fill parameter needs torchvision installed from source
+             transforms.RandomHorizontalFlip(),
+             transforms.ToTensor(),
+             # (https://github.com/uoguelph-mlrg/Cutout/blob/master/util/cutout.py)
+             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+             Cutout(n_holes=1, length=args.aalength)])
+    elif args.data_augment == 'normal':
         transform_train = transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
