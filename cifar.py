@@ -359,6 +359,15 @@ def main():
                 'optimizer' : optimizer.state_dict(),
             }, is_best, checkpoint=args.checkpoint)
 
+        if args.closer_loss and epoch+1 == args.closer_loss_epoch:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+                'acc': test_acc,
+                'best_acc': best_acc,
+                'optimizer': optimizer.state_dict(),
+            }, is_best, checkpoint=args.checkpoint, filename='model_{0}.pth.tar'.format(args.closer_loss_epoch))
+
     logger.close()
     logger.plot()
     savefig(os.path.join(args.checkpoint, 'log.eps'))
